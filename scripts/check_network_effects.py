@@ -68,7 +68,8 @@ def control_inputs(config, distribution):
             evidence_rng.random(config.rounds - short_rounds) < config.true_bias,
         ]
         prepared[topology] = replace(
-            original, adjacency=adjacency, recipients=recipients, observations=observations,
+            original, adjacency=adjacency, relationships=adjacency.astype(np.int8),
+            recipients=recipients, observations=observations,
         )
     return prepared
 

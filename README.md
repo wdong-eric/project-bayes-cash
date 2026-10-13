@@ -1,12 +1,13 @@
 # Bayesian opinion dynamics with cash transfers
 
-A runnable first experiment following the discrete belief dynamics in
+A runnable experiment following the discrete belief dynamics in
 [YutongB/Opinion-Dynamics](https://github.com/YutongB/Opinion-Dynamics), with
-payment-weighted social influence and conserved cash. The agreed first model has
-allies only, shared coin-toss evidence, and one randomly chosen neighbour per
-payer per round. Payments are a fixed amount, a fraction of the payer's current
-wealth, or the maximum of the two (the hybrid rule). The recipient gains the
-money and moves toward the payer's belief.
+payment-weighted social influence and conserved cash. Agents observe shared
+coin-toss evidence and contact one randomly chosen neighbour per round. Payments
+are a fixed amount, a fraction of the payer's current wealth, or the maximum of
+the two (the hybrid rule). The recipient gains the money. Allied payments buy
+attraction; opponent payments weaken repulsion. The original allies-only model
+remains the default and is preserved in commit `130cda2` and `outputs/demo`.
 
 This is an exploratory agent-based model. Bayesian conditioning applies to the
 coin observation; social pooling is an assumed response to payment. It is not a
@@ -24,13 +25,21 @@ python -m pytest -q
 ```
 
 The command runs **both uniform and loguniform initial wealth**, each with fixed,
-fractional, hybrid, and no-payment scenarios. The latter is a control for learning from
-public evidence. A nonempty output directory is refused to protect previous runs.
+fractional, hybrid, and no-payment scenarios. With all allies, the no-payment
+control learns only from public evidence. With opponents it also experiences
+undamped repulsive contacts. A nonempty output directory is refused to protect
+previous runs.
 
 For another paired realization:
 
 ```bash
 python -m bayes_cash --seed 43 --rounds 1000 --output outputs/seed43
+```
+
+To give each undirected edge a 20% probability of being an opponent relationship:
+
+```bash
+python -m bayes_cash --opponent-fraction 0.2 --output outputs/opponents_demo
 ```
 
 All model parameters are exposed by `python -m bayes_cash --help`. For example:
@@ -48,7 +57,11 @@ agreed experiment retain shared coin evidence.
 At time t, agent i has cash W_i and a probability mass function p_i(k) on a common
 grid theta_k in [0,1]. Defaults are 100 agents, a connected Barabasi-Albert network
 with attachment parameter 3, 500 rounds, 21 grid points, true coin bias 0.6, and
-social rate mu = 0.25. All agents are persuadable allies; there are no partisans.
+social rate mu = 0.25. All agents are persuadable; there are no partisans. The
+default opponent fraction is zero. For a positive fraction, each existing edge
+is independently designated ally or opponent by a separate random stream. Signs
+are symmetric and fixed through time. Adding signs changes none of the random
+graph, prior, wealth, coin, or recipient draws.
 NetworkX builds the graph; NumPy implements the equations, without requiring the
 upstream package's compiled graph-tool dependency.
 
@@ -133,7 +146,7 @@ Every payment is debited from its payer and credited to its recipient, so total
 cash is conserved. Simultaneous settlement prevents agent iteration order from
 changing who can afford to pay.
 
-### 4. Payment-weighted social pooling
+### 4. Payment-weighted social pooling: allies-only limit
 
 Let d_i be agent i's undirected network degree and m_ref > 0 a reference payment
 (default 1). Retain a cash-valued self-weight
@@ -174,13 +187,78 @@ all-neighbours-per-round process. In particular, high-degree recipients retain
 more self-weight. A single payment m_ref gives alpha_i = mu/[d_i(1-mu)+mu], not
 mu. This degree dependence is an explicit modelling choice.
 
+### 5. Opponents: payment weakens repulsion
+
+For each scheduled contact j to i, let s_ji=+1 denote an ally and s_ji=-1 an
+opponent. Apply the following cash-valued influence weight to its actual payment:
+
+```math
+w_{ji}(m_j)=\begin{cases}
+m_j,&s_{ji}=+1,\\
+-r(m_j),&s_{ji}=-1,
+\end{cases}
+\qquad
+r(m)=\frac{m_{\rm ref}}{1+m/m_{\rm ref}}.
+```
+
+The repulsive weight is largest at zero payment, is halved at m=m_ref, and tends
+to zero as payment grows. It never becomes attractive. The same reference amount
+calibrates allied influence and the attenuation of opponent influence; this
+avoids adding an independently uncalibrated scale in the first signed experiment.
+
+Using the same just-Bayesian-updated distributions q and the same K_i, define
+
+```math
+u_i(k)=q_i(k)+
+\frac{\sum_{j:r_j=i}w_{ji}(m_j)[q_j(k)-q_i(k)]}
+{K_i+\sum_{j:r_j=i}|w_{ji}(m_j)|},
+\qquad
+p_i'(k)=\frac{\max[0,u_i(k)]}{\sum_\ell\max[0,u_i(\ell)]}.
+```
+
+The raw distribution u_i sums to one because each difference q_j-q_i sums to
+zero. Signed differences can nevertheless make individual masses negative. The
+positive-part normalization is an explicit assumption inherited from the source
+model's signed social step, not a numerical repair. It can eliminate support for
+a hypothesis; later Bayesian evidence alone cannot revive that support, although
+allied contacts can. No probability floor is introduced, and zero predictive
+probability still raises an error.
+
+For implementation, let A_i be total allied cash received, B_i the sum of the
+positive repulsive weights, and D_i=K_i+A_i+B_i. Expanding the numerator gives
+
+```math
+u_i=\frac{(K_i+2B_i)q_i+\sum_{j:r_j=i}w_{ji}q_j}{D_i}.
+```
+
+For B_i=0 this is exactly the existing allied pooling expression; the code keeps
+its numerical ordering and does not apply an unnecessary extra normalization.
+The allies-only baseline is therefore retained bit for bit. With a single
+opponent of weight r, u_i=q_i+[r/(K_i+r)](q_i-q_j), which moves away from the
+opponent's distribution. Increasing payment reduces that repulsive coefficient.
+With several contacts, final belief displacement need not be monotonic because
+other contributions and positive-part normalization also change.
+
+**Unpaid contacts:** each scheduled contact is observed even if its payment is
+zero or unaffordable. An unpaid ally has zero influence; an unpaid opponent has
+maximum repulsion. This is the new information assumption needed for monotonically
+decreasing repulsion from zero payment. Consequently, the mixed-network
+no-payment control combines public evidence with undamped antagonism. It is not
+the allies-only evidence control.
+
+Cash is transferred identically along allied and opposing edges, and the sign
+does not change affordability or whom an agent contacts. For each payment rule,
+wealth and payment histories must be identical between all-allied and mixed
+networks. This is still an exogenous spending model, not utility-maximizing
+choice of whether to pay an opponent.
+
 ## Saved data and diagnostics
 
 Each run saves:
 
 - `summary.json`: parameters, installed package versions, upstream revision,
   conventions, final diagnostics, and numerical conservation errors.
-- `{loguniform,uniform}_trajectories.npz`: grid, network, initial distributions,
+- `{loguniform,uniform}_trajectories.npz`: grid, network, relationship signs, initial distributions,
   initial wealth, shared evidence, recipient schedule, and full belief/wealth/
   payment histories for all four scenarios.
 - `{loguniform,uniform}_metrics.csv`: opinion mean, disagreement, uncertainty,
@@ -213,7 +291,7 @@ which is a different quantity. All figures are exploratory diagnostics.
 
 ### Included demonstration
 
-`outputs/demo` contains the default 100-agent, 500-round run with seed 42. Its
+`outputs/demo` contains the original all-allied 100-agent, 500-round run with seed 42. Its
 wealth Gini coefficients are:
 
 | Initial wealth distribution | Initial | Final, fixed c=1 | Final, fraction f=0.05 | Final, hybrid |
@@ -339,6 +417,241 @@ Gini histories in `network_controls.npz`, and a PNG/PDF comparison figure.
 Error bars show sample SD, not confidence intervals. Tests verify the cash-only
 calculation against the full belief simulation for all three modes and networks.
 
+## Paired opponent comparison
+
+```bash
+python scripts/compare_opponents.py --seeds 20 --rounds 500 \
+  --opponent-fraction 0.2 --output outputs/opponent_comparison
+```
+
+The included comparison uses 100 agents, seeds 42--61, c=1, f=0.05, and a 20%
+opponent-edge probability. The realized fraction is 0.1967 +/- 0.0258 across
+seeds. Each mixed-network run is paired with an all-allied run having exactly
+the same graph, initial beliefs, wealth, evidence, and contacts. All three
+payment rules and both no-payment controls are included. The independently
+audited signed update is documented above; no run failed or was excluded.
+
+Final disagreement means the standard deviation across agents' posterior means.
+The values below are the average across seeds, with sample SD for the mixed arm:
+
+| Wealth | Payment | Allies-only disagreement | With opponents, mean +/- SD |
+| --- | --- | ---: | ---: |
+| Loguniform | Fixed | 6.01e-6 | 0.01865 +/- 0.00226 |
+| Loguniform | Fractional | 6.05e-8 | 0.00762 +/- 0.00291 |
+| Loguniform | Hybrid | 7.45e-9 | 0.00540 +/- 0.00240 |
+| Uniform | Fixed | 2.99e-6 | 0.01668 +/- 0.00205 |
+| Uniform | Fractional | 1.74e-11 | 0.000952 +/- 0.001702 |
+| Uniform | Hybrid | 1.55e-11 | 0.000944 +/- 0.001692 |
+
+The no-payment control has disagreement 0.001123 +/- 0.000372 with all allies
+and 0.02726 +/- 0.00396 with opponents; it is identical across initial wealth
+distributions because neither control spends money. Remember that the mixed
+no-payment control includes unpaid repulsion.
+
+All-allied paid belief MSEs are about 0.001079. In the loguniform mixed runs,
+fixed/fractional/hybrid MSEs are 0.001532/0.001149/0.001101. In the uniform mixed
+runs they are 0.001403/0.001082/0.001082. These measure error as well as uncertainty,
+not just agreement. Full per-seed values and paired differences are saved, so
+overlapping marginal error bars need not be used to assess a paired contrast.
+
+In this experiment, fractional and hybrid payments suppress opponent-driven
+disagreement more effectively than fixed payments. Under the fixed rule,
+increasing cash concentration leaves many contacts unpaid, at maximum repulsion,
+and even a rich opponent never pays more than c. Fractional spending limits
+that accumulation and allows larger payments to weaken repulsion further. The
+hybrid's floor can strengthen allied attraction and opponent attenuation among
+solvent agents whose fractional payments would be small. The net result remains
+network- and parameter-dependent: these runs do not isolate attenuation from
+attraction, nor equate realized spending across rules.
+
+For loguniform wealth the hybrid has lower average disagreement than fractional
+payments despite higher wealth Gini (0.580 versus 0.369). For uniform wealth their
+belief results are almost indistinguishable. The greater typical wealth in the
+uniform draws means the minimum-payment floor is active less often.
+
+Every wealth and payment history was verified **bitwise identical** between the
+two relationship arms. Cash conservation error is below 7.3e-12 cash units.
+The complete original demo was also reproduced bit for bit with the new core,
+and its committed files remain unchanged. `outputs/opponents_demo` contains the
+seed-42 signed run and full trajectories. `outputs/opponent_comparison` contains
+the paired ensemble's figures, per-seed CSV, summary JSON, and replayable inputs
+plus metric histories in NPZ. These are 500-round exploratory results at one
+opponent probability; no stationary or empirically calibrated claim is made.
+
+## Opponent-fraction sweep and long-run check
+
+```bash
+python scripts/sweep_opponents.py --seeds 20 --rounds 20000 --workers 6 \
+  --output outputs/opponent_sweep
+python scripts/plot_opponent_sweep.py outputs/opponent_sweep
+```
+
+The sweep uses opponent-edge probabilities 0, 0.1, ..., 1, both wealth
+distributions, and all three payment rules. Each seed retains the same topology,
+priors, wealth quantiles, observations, and contact schedule across fractions and
+payment rules. Thresholding the same edge uniforms makes the opponent sets
+nested as the probability increases. The plotted horizontal coordinate is the
+assignment probability; realized edge fractions are saved separately.
+
+The first 500 rounds reproduce the earlier comparison exactly. Independent
+seeded continuation streams extend these inputs to round 20,000; time-major
+contact draws also preserve the continuation when a still longer horizon is
+requested. Checkpoints at 500, 5,000, and 20,000 belong to the same trajectories.
+The runner calls the existing simulator in bounded chunks, without changing
+the equations, and checks cash-path hashes across every opponent fraction.
+
+Disagreement is the population standard deviation D of agents' posterior means
+mu_i. Accuracy is measured by the existing posterior belief squared error:
+
+```text
+belief MSE = mean_i Var_i(theta) + mean_i (mu_i - theta_true)^2
+           = mean_i Var_i(theta) + D^2 + (mean_i mu_i - theta_true)^2.
+```
+
+The decomposition distinguishes uncertainty, disagreement, and a shared error.
+The sweep also records exact zero mass at the true grid point, mean mass there,
+and singleton beliefs. No probability floor is introduced. The true bias must
+lie on the grid for the support diagnostics to be defined.
+
+Late-window comparisons average every round from 10,001--15,000 and from
+15,001--20,000 within each seed, then compute the seed mean and sample SD. These
+are exact window averages, independent of the stride used to save time series.
+Across-seed bands show sample SD, not confidence intervals. Agreement between
+late windows is evidence of persistence over this run, not by itself a proof
+of a stationary state.
+
+There is also an exact obstruction to future consensus. An agent with no allied
+neighbours and a singleton belief at an interior grid point keeps that belief
+under both Bayesian learning and repulsive social updates. For a set F of such
+agents, all future disagreement has the lower bound
+
+```text
+D_future >= sqrt(sum_{i in F} (theta_i - mean_F(theta))^2 / N).
+```
+
+The bound follows by allowing every remaining agent to move to the mean of the
+fixed agents, which minimizes population variance. Distinct fixed beliefs make
+the bound positive. It is conditional on retaining the current finite-grid
+model, projection rule, and relationship network; adding a belief floor or
+changing the network would change this conclusion.
+
+### Included sweep results
+
+All 1,320 trajectories (20 seeds x 11 probabilities x two distributions x three
+rules) completed without failed or excluded runs. The 240 old checkpoints at
+p=0 and p=0.2 reproduce the previous 500-round metrics exactly. Complete wealth
+and payment paths match across opponent fractions; maximum cash-conservation
+error is 1.6e-10 cash units. The implementation suite has 88 passing tests.
+
+Selected ensemble-mean disagreement values at round 20,000:
+
+| Initial wealth | Opponent probability | Fixed | Fractional | Hybrid |
+| --- | ---: | ---: | ---: | ---: |
+| Loguniform | 0 | approximately 0 | approximately 0 | approximately 0 |
+| Loguniform | 0.2 | 0.02211 | 0.007219 | 0.004294 |
+| Loguniform | 0.5 | 0.03579 | 0.02967 | 0.02651 |
+| Loguniform | 1 | 0.04756 | 0.04497 | 0.04325 |
+| Uniform | 0 | approximately 0 | approximately 0 | approximately 0 |
+| Uniform | 0.2 | 0.02142 | 0.001492 | 0.001492 |
+| Uniform | 0.5 | 0.03523 | 0.01664 | 0.01661 |
+| Uniform | 1 | 0.04625 | 0.03890 | 0.03887 |
+
+Corresponding belief MSEs (smaller is better):
+
+| Initial wealth | Opponent probability | Fixed | Fractional | Hybrid |
+| --- | ---: | ---: | ---: | ---: |
+| Loguniform | 0 | approximately 0 | approximately 0 | approximately 0 |
+| Loguniform | 0.2 | 1.261e-3 | 4.315e-4 | 2.792e-4 |
+| Loguniform | 0.5 | 1.709e-3 | 1.482e-3 | 1.371e-3 |
+| Loguniform | 1 | 3.193e-3 | 2.908e-3 | 2.716e-3 |
+| Uniform | 0 | approximately 0 | approximately 0 | approximately 0 |
+| Uniform | 0.2 | 1.247e-3 | 7.500e-6 | 7.500e-6 |
+| Uniform | 0.5 | 1.713e-3 | 5.299e-4 | 5.215e-4 |
+| Uniform | 1 | 3.019e-3 | 2.228e-3 | 2.221e-3 |
+
+Here the all-allied disagreement is about 1e-16 and belief MSE about 2e-30:
+effectively agreement on the true point of this discrete grid. Fixed payments
+have the largest ensemble-mean final disagreement and MSE at every positive
+tested probability, for both distributions. Hybrid usually improves upon
+fractional payments for loguniform wealth; their uniform-wealth results are
+close. This is not a universal ordering: at loguniform p=0.1 the fractional
+endpoint disagreement is slightly lower, whereas the hybrid's final-window
+average is lower. At uniform p=0.6 the hybrid's endpoint MSE is slightly higher.
+The wealth distributions also differ in typical and total wealth, hence in
+payment burdens; their contrast does not isolate distribution shape.
+
+**Longer learning does not generally remove disagreement.** At p=1, the changes
+in ensemble-mean disagreement between the two late windows are below 0.2%, and
+belief MSE is almost flat. More strongly, every one of these 120 all-opponent
+runs contains permanently fixed agents at distinct interior grid points. Their
+mean lower bounds on future disagreement range from 0.0176 to 0.0202 across the
+six distribution/payment combinations. These are guaranteed lower bounds, not
+predictions of the eventual disagreement.
+
+Across the whole sweep, 715/1,320 runs have a resolved positive certificate at
+round 20,000 (387 loguniform, 328 uniform). A 1e-12 guard excludes floating-point
+roundoff from this count; the smallest resolved positive bound is 0.0035355.
+Every seed and payment rule is certified at the tested probabilities p>=0.6 for
+loguniform wealth and p>=0.8 for uniform wealth. These observations do not
+locate a phase boundary. At p=1, 56.4--64.1% of agents assign exactly zero mass
+to the truth, depending on the distribution and payment rule. Repulsion and its
+positive-part projection can eliminate hypotheses that subsequent Bayesian
+conditioning cannot recover without allied input.
+
+**Some small residuals remain transient.** At loguniform p=0.1, fractional
+late-window disagreement decreases from 0.000728 to 0.000469, and hybrid from
+0.000461 to 0.000407; their MSEs also decrease. These runs have not established
+a nonzero asymptotic limit. Even where disagreement looks steady, individual
+runs and accuracy can fluctuate: loguniform p=0.2 hybrid mean MSE rises from
+8.20e-5 to 1.09e-4 between late windows. More observation is therefore not a
+guarantee of monotonically improving accuracy under signed social influence.
+
+Seed heterogeneity matters. At uniform p=0.2, both fractional and hybrid have
+14/20 seeds at numerical agreement on truth. The other six retain one agent
+concentrated on 0.55 or 0.65, giving disagreement 0.004975 and MSE 2.5e-5 within
+each such run. Their ensemble disagreement is 0.001492. This residual is stable
+over both late windows, but their tiny surviving belief tails mean they do not
+meet the exact-singleton certificate. Neither every seed nor every nonzero
+endpoint should be described as permanently polarized.
+
+Disagreement need not increase monotonically with opponent probability, and
+less disagreement need not mean greater accuracy. For example, uniform
+fractional payments give disagreement 0.03952 at p=0.9 and 0.03890 at p=1, while
+MSE increases from 0.002128 to 0.002228.
+
+The saved figures answer complementary questions:
+
+- [Disagreement sweep](outputs/opponent_sweep/disagreement_sweep.png): how
+  population spread changes across probability and the three horizons.
+- [Belief accuracy sweep](outputs/opponent_sweep/belief_accuracy_sweep.png): the
+  same comparison including uncertainty and error about the true bias.
+- [Late persistence](outputs/opponent_sweep/late_persistence.png): exact averages
+  from the last two 5,000-round windows, with sample SD across seeds.
+- [Truth support and absorbing bounds](outputs/opponent_sweep/absorbing_support.png):
+  current exclusion of truth versus a certified obstruction to future consensus.
+
+Each figure also has a PDF. `per_seed.csv` and `late_windows.csv` contain the
+individual results; `summary.json` contains group statistics, conventions, and
+cash hashes. `trajectories.npz` stores diagnostics every 50 rounds and all
+checkpoints, while `inputs.npz` stores the full replayable random inputs.
+The 21-point grid and support-erasing projection remain scientific assumptions;
+no grid-refinement or alternative-projection study is included here.
+
+## Saved artifacts and version control
+
+Git retains the code, tests, small figures and CSV/JSON results, and
+`outputs/opponent_sweep/trajectories.npz`. This last archive contains diagnostics
+from 1,320 trajectories of 20,000 rounds and is costly to reproduce.
+
+Other NPZ archives are ignored: the single-seed demos, the shorter paired
+comparison, the cash-only network controls, and the sweep's raw `inputs.npz`.
+They remain available locally when generated. The commands in the corresponding
+sections regenerate the simulation outputs. Sweep inputs alone can be rebuilt
+with `make_sweep_inputs` in `scripts/sweep_opponents.py`, using the configuration,
+seeds, and opponent fractions recorded in `summary.json`; generating them does
+not require running the belief dynamics. Cheap archives committed previously
+remain in historical commits, but are no longer tracked in the current tree.
+
 ## Interpretation limits and next decisions
 
 - This first version has **wealth-to-opinion coupling**. Spending and recipient
@@ -357,9 +670,10 @@ calculation against the full belief simulation for all three modes and networks.
   seeds and examine sensitivity to the wealth range, spending rate, social rate,
   network, and grid before making scientific claims. Tests establish software
   and conservation contracts, not empirical or model validity.
-- For the next extension, the user proposed that payment **underweight opponents'
-  repulsive influence**. Opponents and the functional form of that attenuation
-  are intentionally deferred until after this allies-only experiment.
+- Opponent attenuation, the opponent fraction, and the positive-part response
+  require scientific sensitivity studies. The first signed comparison uses a
+  disclosed 20% opponent-edge probability and the shared reference payment scale;
+  these choices have not been empirically calibrated.
 
 ## Provenance
 

@@ -6,3 +6,7 @@ __pycache__/
 build/
 dist/
 .DS_Store
+
+# Regenerate raw inputs and short runs; retain costly long-run diagnostics.
+outputs/**/*.npz
+!outputs/opponent_sweep/trajectories.npz

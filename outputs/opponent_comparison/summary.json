@@ -1,0 +1,789 @@
+{
+  "config": {
+    "n_agents": 100,
+    "rounds": 500,
+    "attachment": 3,
+    "grid_size": 21,
+    "true_bias": 0.6,
+    "social_rate": 0.25,
+    "reference_payment": 1.0,
+    "opponent_fraction": 0.2,
+    "wealth_min": 1.0,
+    "wealth_max": 100.0,
+    "fixed_payment": 1.0,
+    "wealth_fraction": 0.05,
+    "seed": 42,
+    "public_evidence": true
+  },
+  "seeds": [
+    42,
+    43,
+    44,
+    45,
+    46,
+    47,
+    48,
+    49,
+    50,
+    51,
+    52,
+    53,
+    54,
+    55,
+    56,
+    57,
+    58,
+    59,
+    60,
+    61
+  ],
+  "versions": {
+    "bayes-cash": "0.1.0",
+    "numpy": "2.5.4",
+    "networkx": "3.7",
+    "matplotlib": "3.11.2"
+  },
+  "conventions": {
+    "pairing": "identical topology, initial beliefs, initial wealth, evidence, and contacts across relationship arms and payment modes",
+    "opponents": "independent negative undirected edges with probability opponent_fraction; realized fraction recorded per seed",
+    "signed_weights": "ally: payment; opponent: -reference_payment / (1 + payment / reference_payment); denominator: self_weight + incoming absolute weights; positive-part renormalization",
+    "no_payment": "allies: evidence only; opponents: evidence plus undamped repulsion on sampled opponent contacts",
+    "cash": "wealth and payments verified bitwise identical across relationship arms for every mode and seed",
+    "uncertainty": "sample SD across paired seeds, not confidence intervals",
+    "belief_mse": "mean over agents of posterior variance plus squared posterior-mean error about the true coin bias",
+    "limitations": "finite horizon on one network family, one opponent probability, and unequal spending between payment rules"
+  },
+  "groups": [
+    {
+      "distribution": "loguniform",
+      "mode": "fixed",
+      "arm": "allies",
+      "mean_opinion": {
+        "mean": 0.5995095388770908,
+        "sample_sd": 0.025508594111815254
+      },
+      "opinion_disagreement": {
+        "mean": 6.009790169382106e-06,
+        "sample_sd": 3.5678343879207653e-06
+      },
+      "belief_mse": {
+        "mean": 0.001078865287234057,
+        "sample_sd": 0.0009285526005470935
+      },
+      "mean_posterior_sd": {
+        "mean": 0.02129716982203934,
+        "sample_sd": 0.0026952750871958578
+      },
+      "wealth_gini": {
+        "mean": 0.9259993777945354,
+        "sample_sd": 0.014420416336040796
+      },
+      "realized_opponent_fraction": {
+        "mean": 0.0,
+        "sample_sd": 0.0
+      },
+      "cumulative_cash_transferred": {
+        "mean": 23293.95,
+        "sample_sd": 1757.3858718652484
+      }
+    },
+    {
+      "distribution": "loguniform",
+      "mode": "fixed",
+      "arm": "opponents",
+      "mean_opinion": {
+        "mean": 0.596616889593514,
+        "sample_sd": 0.02769698407687379
+      },
+      "opinion_disagreement": {
+        "mean": 0.018653021592152957,
+        "sample_sd": 0.002258698247934489
+      },
+      "belief_mse": {
+        "mean": 0.0015322939020145324,
+        "sample_sd": 0.0008539248176469108
+      },
+      "mean_posterior_sd": {
+        "mean": 0.019090416377547888,
+        "sample_sd": 0.0021483977469961427
+      },
+      "wealth_gini": {
+        "mean": 0.9259993777945354,
+        "sample_sd": 0.014420416336040796
+      },
+      "realized_opponent_fraction": {
+        "mean": 0.19673539518900346,
+        "sample_sd": 0.025761135418971143
+      },
+      "cumulative_cash_transferred": {
+        "mean": 23293.95,
+        "sample_sd": 1757.3858718652484
+      }
+    },
+    {
+      "distribution": "loguniform",
+      "mode": "fractional",
+      "arm": "allies",
+      "mean_opinion": {
+        "mean": 0.5994938917258409,
+        "sample_sd": 0.025509400634606633
+      },
+      "opinion_disagreement": {
+        "mean": 6.050749373843396e-08,
+        "sample_sd": 6.60568822830807e-08
+      },
+      "belief_mse": {
+        "mean": 0.001079125148316176,
+        "sample_sd": 0.0009281666123567347
+      },
+      "mean_posterior_sd": {
+        "mean": 0.021301750089321884,
+        "sample_sd": 0.0026972502868546737
+      },
+      "wealth_gini": {
+        "mean": 0.3692410924146663,
+        "sample_sd": 0.016435610574982076
+      },
+      "realized_opponent_fraction": {
+        "mean": 0.0,
+        "sample_sd": 0.0
+      },
+      "cumulative_cash_transferred": {
+        "mean": 53386.745993237455,
+        "sample_sd": 6152.259847553368
+      }
+    },
+    {
+      "distribution": "loguniform",
+      "mode": "fractional",
+      "arm": "opponents",
+      "mean_opinion": {
+        "mean": 0.5990485946011075,
+        "sample_sd": 0.025541937582037662
+      },
+      "opinion_disagreement": {
+        "mean": 0.0076174441178566196,
+        "sample_sd": 0.0029100419856140534
+      },
+      "belief_mse": {
+        "mean": 0.0011488198325735025,
+        "sample_sd": 0.0008723619518850147
+      },
+      "mean_posterior_sd": {
+        "mean": 0.021056522305878112,
+        "sample_sd": 0.00213988066499406
+      },
+      "wealth_gini": {
+        "mean": 0.3692410924146663,
+        "sample_sd": 0.016435610574982076
+      },
+      "realized_opponent_fraction": {
+        "mean": 0.19673539518900346,
+        "sample_sd": 0.025761135418971143
+      },
+      "cumulative_cash_transferred": {
+        "mean": 53386.745993237455,
+        "sample_sd": 6152.259847553368
+      }
+    },
+    {
+      "distribution": "loguniform",
+      "mode": "hybrid",
+      "arm": "allies",
+      "mean_opinion": {
+        "mean": 0.5995116498788926,
+        "sample_sd": 0.025516037869276944
+      },
+      "opinion_disagreement": {
+        "mean": 7.449215768969715e-09,
+        "sample_sd": 7.729128022944227e-09
+      },
+      "belief_mse": {
+        "mean": 0.0010794062172905987,
+        "sample_sd": 0.0009285838370182929
+      },
+      "mean_posterior_sd": {
+        "mean": 0.021301173998174598,
+        "sample_sd": 0.0026975502785657277
+      },
+      "wealth_gini": {
+        "mean": 0.5803913619238026,
+        "sample_sd": 0.03311194379344245
+      },
+      "realized_opponent_fraction": {
+        "mean": 0.0,
+        "sample_sd": 0.0
+      },
+      "cumulative_cash_transferred": {
+        "mean": 67718.2173029171,
+        "sample_sd": 4925.20862144837
+      }
+    },
+    {
+      "distribution": "loguniform",
+      "mode": "hybrid",
+      "arm": "opponents",
+      "mean_opinion": {
+        "mean": 0.5991969705452573,
+        "sample_sd": 0.025363790989503827
+      },
+      "opinion_disagreement": {
+        "mean": 0.005401512381871331,
+        "sample_sd": 0.002395294023823464
+      },
+      "belief_mse": {
+        "mean": 0.0011009750079598551,
+        "sample_sd": 0.0008967679051055163
+      },
+      "mean_posterior_sd": {
+        "mean": 0.020996943544366757,
+        "sample_sd": 0.0024578484069617645
+      },
+      "wealth_gini": {
+        "mean": 0.5803913619238026,
+        "sample_sd": 0.03311194379344245
+      },
+      "realized_opponent_fraction": {
+        "mean": 0.19673539518900346,
+        "sample_sd": 0.025761135418971143
+      },
+      "cumulative_cash_transferred": {
+        "mean": 67718.2173029171,
+        "sample_sd": 4925.20862144837
+      }
+    },
+    {
+      "distribution": "loguniform",
+      "mode": "no_payment",
+      "arm": "allies",
+      "mean_opinion": {
+        "mean": 0.5994370140239819,
+        "sample_sd": 0.025437213459998456
+      },
+      "opinion_disagreement": {
+        "mean": 0.0011227085207166278,
+        "sample_sd": 0.000371642370788703
+      },
+      "belief_mse": {
+        "mean": 0.0010753139492704952,
+        "sample_sd": 0.0009261492768646463
+      },
+      "mean_posterior_sd": {
+        "mean": 0.021257389119123723,
+        "sample_sd": 0.0026881954055353
+      },
+      "wealth_gini": {
+        "mean": 0.5768607495825842,
+        "sample_sd": 0.01563104166799361
+      },
+      "realized_opponent_fraction": {
+        "mean": 0.0,
+        "sample_sd": 0.0
+      },
+      "cumulative_cash_transferred": {
+        "mean": 0.0,
+        "sample_sd": 0.0
+      }
+    },
+    {
+      "distribution": "loguniform",
+      "mode": "no_payment",
+      "arm": "opponents",
+      "mean_opinion": {
+        "mean": 0.5965513839577866,
+        "sample_sd": 0.02726193208027032
+      },
+      "opinion_disagreement": {
+        "mean": 0.027260854611059926,
+        "sample_sd": 0.003962110430682128
+      },
+      "belief_mse": {
+        "mean": 0.0017465696109538135,
+        "sample_sd": 0.0010379773418394366
+      },
+      "mean_posterior_sd": {
+        "mean": 0.013367539801788661,
+        "sample_sd": 0.0011930178677253842
+      },
+      "wealth_gini": {
+        "mean": 0.5768607495825842,
+        "sample_sd": 0.01563104166799361
+      },
+      "realized_opponent_fraction": {
+        "mean": 0.19673539518900346,
+        "sample_sd": 0.025761135418971143
+      },
+      "cumulative_cash_transferred": {
+        "mean": 0.0,
+        "sample_sd": 0.0
+      }
+    },
+    {
+      "distribution": "uniform",
+      "mode": "fixed",
+      "arm": "allies",
+      "mean_opinion": {
+        "mean": 0.599518772654748,
+        "sample_sd": 0.02551068706984321
+      },
+      "opinion_disagreement": {
+        "mean": 2.990805224372416e-06,
+        "sample_sd": 1.7520864354800893e-06
+      },
+      "belief_mse": {
+        "mean": 0.0010788794906901177,
+        "sample_sd": 0.0009288355744181626
+      },
+      "mean_posterior_sd": {
+        "mean": 0.02129501566615668,
+        "sample_sd": 0.0026979150093947
+      },
+      "wealth_gini": {
+        "mean": 0.8999232391410136,
+        "sample_sd": 0.018675561090188697
+      },
+      "realized_opponent_fraction": {
+        "mean": 0.0,
+        "sample_sd": 0.0
+      },
+      "cumulative_cash_transferred": {
+        "mean": 30589.3,
+        "sample_sd": 1209.1946036406564
+      }
+    },
+    {
+      "distribution": "uniform",
+      "mode": "fixed",
+      "arm": "opponents",
+      "mean_opinion": {
+        "mean": 0.5970906359392092,
+        "sample_sd": 0.026517481578180575
+      },
+      "opinion_disagreement": {
+        "mean": 0.01667793144754843,
+        "sample_sd": 0.002046197098948457
+      },
+      "belief_mse": {
+        "mean": 0.001402821638872603,
+        "sample_sd": 0.00081313001472551
+      },
+      "mean_posterior_sd": {
+        "mean": 0.01963021546969911,
+        "sample_sd": 0.0017532289727531052
+      },
+      "wealth_gini": {
+        "mean": 0.8999232391410136,
+        "sample_sd": 0.018675561090188697
+      },
+      "realized_opponent_fraction": {
+        "mean": 0.19673539518900346,
+        "sample_sd": 0.025761135418971143
+      },
+      "cumulative_cash_transferred": {
+        "mean": 30589.3,
+        "sample_sd": 1209.1946036406564
+      }
+    },
+    {
+      "distribution": "uniform",
+      "mode": "fractional",
+      "arm": "allies",
+      "mean_opinion": {
+        "mean": 0.5995287234132103,
+        "sample_sd": 0.025517514071687654
+      },
+      "opinion_disagreement": {
+        "mean": 1.7352672058953128e-11,
+        "sample_sd": 2.0636577491734942e-11
+      },
+      "belief_mse": {
+        "mean": 0.0010795509934823846,
+        "sample_sd": 0.0009286631242996212
+      },
+      "mean_posterior_sd": {
+        "mean": 0.02130349039519957,
+        "sample_sd": 0.0026957746009028706
+      },
+      "wealth_gini": {
+        "mean": 0.3692409496452752,
+        "sample_sd": 0.016435624703391865
+      },
+      "realized_opponent_fraction": {
+        "mean": 0.0,
+        "sample_sd": 0.0
+      },
+      "cumulative_cash_transferred": {
+        "mean": 126968.36819422245,
+        "sample_sd": 5823.557313519446
+      }
+    },
+    {
+      "distribution": "uniform",
+      "mode": "fractional",
+      "arm": "opponents",
+      "mean_opinion": {
+        "mean": 0.5995327451710082,
+        "sample_sd": 0.02554877160210945
+      },
+      "opinion_disagreement": {
+        "mean": 0.000952216177695489,
+        "sample_sd": 0.0017021431974699275
+      },
+      "belief_mse": {
+        "mean": 0.001082168223709236,
+        "sample_sd": 0.0009271091667161534
+      },
+      "mean_posterior_sd": {
+        "mean": 0.021200067131464675,
+        "sample_sd": 0.002889142095156622
+      },
+      "wealth_gini": {
+        "mean": 0.3692409496452752,
+        "sample_sd": 0.016435624703391865
+      },
+      "realized_opponent_fraction": {
+        "mean": 0.19673539518900346,
+        "sample_sd": 0.025761135418971143
+      },
+      "cumulative_cash_transferred": {
+        "mean": 126968.36819422245,
+        "sample_sd": 5823.557313519446
+      }
+    },
+    {
+      "distribution": "uniform",
+      "mode": "hybrid",
+      "arm": "allies",
+      "mean_opinion": {
+        "mean": 0.5995316066464547,
+        "sample_sd": 0.02551481182465563
+      },
+      "opinion_disagreement": {
+        "mean": 1.5512296067264754e-11,
+        "sample_sd": 1.8426641103035285e-11
+      },
+      "belief_mse": {
+        "mean": 0.0010794032427203296,
+        "sample_sd": 0.0009285597215214136
+      },
+      "mean_posterior_sd": {
+        "mean": 0.021303098435989893,
+        "sample_sd": 0.002696294940918401
+      },
+      "wealth_gini": {
+        "mean": 0.38471445658346204,
+        "sample_sd": 0.01741544904624348
+      },
+      "realized_opponent_fraction": {
+        "mean": 0.0,
+        "sample_sd": 0.0
+      },
+      "cumulative_cash_transferred": {
+        "mean": 128762.64644702035,
+        "sample_sd": 5523.297761904105
+      }
+    },
+    {
+      "distribution": "uniform",
+      "mode": "hybrid",
+      "arm": "opponents",
+      "mean_opinion": {
+        "mean": 0.5995356886885843,
+        "sample_sd": 0.02554713245762891
+      },
+      "opinion_disagreement": {
+        "mean": 0.0009444088154059749,
+        "sample_sd": 0.0016916961338929721
+      },
+      "belief_mse": {
+        "mean": 0.0010821442239383609,
+        "sample_sd": 0.0009269118483915519
+      },
+      "mean_posterior_sd": {
+        "mean": 0.021202702682405056,
+        "sample_sd": 0.0028880825304623495
+      },
+      "wealth_gini": {
+        "mean": 0.38471445658346204,
+        "sample_sd": 0.01741544904624348
+      },
+      "realized_opponent_fraction": {
+        "mean": 0.19673539518900346,
+        "sample_sd": 0.025761135418971143
+      },
+      "cumulative_cash_transferred": {
+        "mean": 128762.64644702035,
+        "sample_sd": 5523.297761904105
+      }
+    },
+    {
+      "distribution": "uniform",
+      "mode": "no_payment",
+      "arm": "allies",
+      "mean_opinion": {
+        "mean": 0.5994370140239819,
+        "sample_sd": 0.025437213459998456
+      },
+      "opinion_disagreement": {
+        "mean": 0.0011227085207166278,
+        "sample_sd": 0.000371642370788703
+      },
+      "belief_mse": {
+        "mean": 0.0010753139492704952,
+        "sample_sd": 0.0009261492768646463
+      },
+      "mean_posterior_sd": {
+        "mean": 0.021257389119123723,
+        "sample_sd": 0.0026881954055353
+      },
+      "wealth_gini": {
+        "mean": 0.318066980268628,
+        "sample_sd": 0.01356308256306714
+      },
+      "realized_opponent_fraction": {
+        "mean": 0.0,
+        "sample_sd": 0.0
+      },
+      "cumulative_cash_transferred": {
+        "mean": 0.0,
+        "sample_sd": 0.0
+      }
+    },
+    {
+      "distribution": "uniform",
+      "mode": "no_payment",
+      "arm": "opponents",
+      "mean_opinion": {
+        "mean": 0.5965513839577866,
+        "sample_sd": 0.02726193208027032
+      },
+      "opinion_disagreement": {
+        "mean": 0.027260854611059926,
+        "sample_sd": 0.003962110430682128
+      },
+      "belief_mse": {
+        "mean": 0.0017465696109538135,
+        "sample_sd": 0.0010379773418394366
+      },
+      "mean_posterior_sd": {
+        "mean": 0.013367539801788661,
+        "sample_sd": 0.0011930178677253842
+      },
+      "wealth_gini": {
+        "mean": 0.318066980268628,
+        "sample_sd": 0.01356308256306714
+      },
+      "realized_opponent_fraction": {
+        "mean": 0.19673539518900346,
+        "sample_sd": 0.025761135418971143
+      },
+      "cumulative_cash_transferred": {
+        "mean": 0.0,
+        "sample_sd": 0.0
+      }
+    }
+  ],
+  "paired_contrasts": [
+    {
+      "distribution": "loguniform",
+      "mode": "fixed",
+      "contrast": "opponents_minus_allies",
+      "mean_opinion": {
+        "mean": -0.00289264928357682,
+        "sample_sd": 0.00769335352679743
+      },
+      "opinion_disagreement": {
+        "mean": 0.018647011801983575,
+        "sample_sd": 0.002257702944079904
+      },
+      "belief_mse": {
+        "mean": 0.00045342861478047503,
+        "sample_sd": 0.0003808941894206774
+      },
+      "mean_posterior_sd": {
+        "mean": -0.0022067534444914516,
+        "sample_sd": 0.0037017448141570663
+      },
+      "wealth_gini": {
+        "mean": 0.0,
+        "sample_sd": 0.0
+      }
+    },
+    {
+      "distribution": "loguniform",
+      "mode": "fractional",
+      "contrast": "opponents_minus_allies",
+      "mean_opinion": {
+        "mean": -0.00044529712473341255,
+        "sample_sd": 0.002502149284004851
+      },
+      "opinion_disagreement": {
+        "mean": 0.007617383610362882,
+        "sample_sd": 0.002910015511726312
+      },
+      "belief_mse": {
+        "mean": 6.969468425732638e-05,
+        "sample_sd": 0.00011817931356902618
+      },
+      "mean_posterior_sd": {
+        "mean": -0.0002452277834437801,
+        "sample_sd": 0.0015995028844761493
+      },
+      "wealth_gini": {
+        "mean": 0.0,
+        "sample_sd": 0.0
+      }
+    },
+    {
+      "distribution": "loguniform",
+      "mode": "hybrid",
+      "contrast": "opponents_minus_allies",
+      "mean_opinion": {
+        "mean": -0.00031467933363525934,
+        "sample_sd": 0.0014773711546782163
+      },
+      "opinion_disagreement": {
+        "mean": 0.005401504932655564,
+        "sample_sd": 0.0023952929437588695
+      },
+      "belief_mse": {
+        "mean": 2.1568790669256576e-05,
+        "sample_sd": 7.51823813882661e-05
+      },
+      "mean_posterior_sd": {
+        "mean": -0.00030423045380784314,
+        "sample_sd": 0.0011141870392236252
+      },
+      "wealth_gini": {
+        "mean": 0.0,
+        "sample_sd": 0.0
+      }
+    },
+    {
+      "distribution": "loguniform",
+      "mode": "no_payment",
+      "contrast": "opponents_minus_allies",
+      "mean_opinion": {
+        "mean": -0.0028856300661953328,
+        "sample_sd": 0.008552458350071315
+      },
+      "opinion_disagreement": {
+        "mean": 0.026138146090343296,
+        "sample_sd": 0.003985866929567188
+      },
+      "belief_mse": {
+        "mean": 0.000671255661683318,
+        "sample_sd": 0.0005423683533073039
+      },
+      "mean_posterior_sd": {
+        "mean": -0.007889849317335065,
+        "sample_sd": 0.002944052450882189
+      },
+      "wealth_gini": {
+        "mean": 0.0,
+        "sample_sd": 0.0
+      }
+    },
+    {
+      "distribution": "uniform",
+      "mode": "fixed",
+      "contrast": "opponents_minus_allies",
+      "mean_opinion": {
+        "mean": -0.0024281367155386813,
+        "sample_sd": 0.007255747965265546
+      },
+      "opinion_disagreement": {
+        "mean": 0.01667494064232406,
+        "sample_sd": 0.0020455791061961665
+      },
+      "belief_mse": {
+        "mean": 0.0003239421481824855,
+        "sample_sd": 0.00035192342053458293
+      },
+      "mean_posterior_sd": {
+        "mean": -0.0016648001964575706,
+        "sample_sd": 0.003325054961326938
+      },
+      "wealth_gini": {
+        "mean": 0.0,
+        "sample_sd": 0.0
+      }
+    },
+    {
+      "distribution": "uniform",
+      "mode": "fractional",
+      "contrast": "opponents_minus_allies",
+      "mean_opinion": {
+        "mean": 4.021757797906256e-06,
+        "sample_sd": 0.000348026719803171
+      },
+      "opinion_disagreement": {
+        "mean": 0.0009522161603428171,
+        "sample_sd": 0.0017021431929608605
+      },
+      "belief_mse": {
+        "mean": 2.6172302268513666e-06,
+        "sample_sd": 1.2049468268840103e-05
+      },
+      "mean_posterior_sd": {
+        "mean": -0.0001034232637348918,
+        "sample_sd": 0.00045087636016065484
+      },
+      "wealth_gini": {
+        "mean": 0.0,
+        "sample_sd": 0.0
+      }
+    },
+    {
+      "distribution": "uniform",
+      "mode": "hybrid",
+      "contrast": "opponents_minus_allies",
+      "mean_opinion": {
+        "mean": 4.082042129693875e-06,
+        "sample_sd": 0.0003463357315964484
+      },
+      "opinion_disagreement": {
+        "mean": 0.000944408799893679,
+        "sample_sd": 0.0016916961299312777
+      },
+      "belief_mse": {
+        "mean": 2.74098121803154e-06,
+        "sample_sd": 1.2035838733818776e-05
+      },
+      "mean_posterior_sd": {
+        "mean": -0.00010039575358483654,
+        "sample_sd": 0.0004473674093928807
+      },
+      "wealth_gini": {
+        "mean": 0.0,
+        "sample_sd": 0.0
+      }
+    },
+    {
+      "distribution": "uniform",
+      "mode": "no_payment",
+      "contrast": "opponents_minus_allies",
+      "mean_opinion": {
+        "mean": -0.0028856300661953328,
+        "sample_sd": 0.008552458350071315
+      },
+      "opinion_disagreement": {
+        "mean": 0.026138146090343296,
+        "sample_sd": 0.003985866929567188
+      },
+      "belief_mse": {
+        "mean": 0.000671255661683318,
+        "sample_sd": 0.0005423683533073039
+      },
+      "mean_posterior_sd": {
+        "mean": -0.007889849317335065,
+        "sample_sd": 0.002944052450882189
+      },
+      "wealth_gini": {
+        "mean": 0.0,
+        "sample_sd": 0.0
+      }
+    }
+  ],
+  "max_absolute_cash_error": 7.275957614183426e-12
+}

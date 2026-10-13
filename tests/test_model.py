@@ -28,6 +28,7 @@ def directed_round():
     inputs = PreparedInputs(
         theta=np.array([0.0, 0.5, 1.0]),
         adjacency=np.array([[0, 1, 0], [1, 0, 1], [0, 1, 0]], dtype=bool),
+        relationships=np.array([[0, 1, 0], [1, 0, 1], [0, 1, 0]]),
         initial_beliefs=np.eye(3),
         initial_wealth=np.array([1.0, 0.4, 0.2]),
         observations=np.array([1]),
@@ -137,6 +138,7 @@ def test_all_neighbor_reference_payments_recover_original_ally_update():
     inputs = PreparedInputs(
         theta=np.array([0.0, 0.5, 1.0]),
         adjacency=np.array([[0, 1], [1, 0]], dtype=bool),
+        relationships=np.array([[0, 1], [1, 0]]),
         initial_beliefs=np.array([[0.2, 0.3, 0.5], [0.6, 0.3, 0.1]]),
         initial_wealth=np.array([2.0, 2.0]),
         observations=np.array([1]),
@@ -155,13 +157,120 @@ def test_larger_payment_has_stronger_effect_on_recipient():
     beliefs = np.array([[1.0, 0.0], [0.0, 1.0]])
     recipients = np.array([1, 0])
     self_weight = np.array([3.0, 3.0])
-    small = social_update(beliefs, recipients, np.array([1.0, 0.0]), self_weight)
-    large = social_update(beliefs, recipients, np.array([3.0, 0.0]), self_weight)
+    relationships = np.array([[0, 1], [1, 0]])
+    small = social_update(beliefs, recipients, np.array([1.0, 0.0]), self_weight, relationships, 1.0)
+    large = social_update(beliefs, recipients, np.array([3.0, 0.0]), self_weight, relationships, 1.0)
 
     assert_allclose(small[1], [0.25, 0.75])
     assert_allclose(large[1], [0.5, 0.5])
     assert_array_equal(small[0], beliefs[0])
     assert_array_equal(large[0], beliefs[0])
+
+
+def test_unpaid_opponents_repel_and_reference_payment_halves_repulsive_weight():
+    beliefs = np.array([[0.4, 0.6], [0.6, 0.4]])
+    recipients = np.array([1, 0])
+    self_weight = np.array([3.0, 3.0])
+    relationships = np.array([[0, -1], [-1, 0]])
+    unpaid = social_update(beliefs, recipients, np.zeros(2), self_weight, relationships, 1.0)
+    reference = social_update(beliefs, recipients, np.ones(2), self_weight, relationships, 1.0)
+
+    # Unpaid repulsion has magnitude 1; a reference-sized payment reduces it to 1/2.
+    assert_allclose(unpaid, [[0.35, 0.65], [0.65, 0.35]])
+    assert_allclose(reference[1], beliefs[1] + 0.5 / 3.5 * (beliefs[1] - beliefs[0]))
+
+
+def test_increasing_payment_monotonically_weakens_pair_repulsion():
+    beliefs = np.array([[0.4, 0.6], [0.6, 0.4]])
+    shifts = []
+    for payment in (0.0, 0.1, 1.0, 10.0, 1e12):
+        updated = social_update(
+            beliefs, np.array([1, 0]), np.full(2, payment), np.full(2, 3.0),
+            np.array([[0, -1], [-1, 0]]), 1.0,
+        )
+        shifts.append(updated[1, 0] - beliefs[1, 0])
+    assert np.all(np.diff(shifts) < 0)
+    assert shifts[-1] < 1e-12
+
+
+def test_zero_payment_allies_leave_beliefs_exactly_unchanged():
+    beliefs = np.array([[0.4, 0.6], [0.6, 0.4]])
+    updated = social_update(
+        beliefs, np.array([1, 0]), np.zeros(2), np.full(2, 3.0),
+        np.array([[0, 1], [1, 0]]), 1.0,
+    )
+    assert_array_equal(updated, beliefs)
+
+
+def test_signed_projection_can_erase_the_true_hypothesis_without_a_floor():
+    theta = np.array([0.0, 0.5, 1.0])
+    beliefs = np.array([[0.05, 0.9, 0.05], [0.45, 0.1, 0.45]])
+    updated = social_update(
+        beliefs, np.array([1, 0]), np.zeros(2), np.full(2, 3.0),
+        np.array([[0, -1], [-1, 0]]), 1.0,
+    )
+    assert_array_equal(updated[1], [0.5, 0.0, 0.5])
+    assert bayesian_update(updated, theta, 1)[1, 1] == 0.0
+    assert_allclose(updated.sum(axis=1), 1.0)
+
+
+def test_allies_preserve_original_pooling_bitwise_with_multiple_incoming_payments():
+    beliefs = np.array([[0.13, 0.87], [0.57, 0.43], [0.21, 0.79]])
+    recipients = np.array([1, 0, 1])
+    payments = np.array([0.17, 1.23, 2.41])
+    self_weight = np.array([3.0, 6.0, 3.0])
+    relationships = np.array([[0, 1, 0], [1, 0, 1], [0, 1, 0]])
+    expected = beliefs.copy()
+    expected[0] = (3.0 * beliefs[0] + 1.23 * beliefs[1]) / (3.0 + 1.23)
+    expected[1] = (6.0 * beliefs[1] + (0.17 * beliefs[0] + 2.41 * beliefs[2])) / (
+        6.0 + (0.17 + 2.41)
+    )
+    actual = social_update(beliefs, recipients, payments, self_weight, relationships, 1.0)
+    assert_array_equal(actual, expected)
+
+
+def test_mixed_incoming_signs_use_total_absolute_weight_in_the_denominator():
+    beliefs = np.array([[0.4, 0.6], [0.5, 0.5], [0.7, 0.3]])
+    # Agent 0 attracts agent 1 with weight 2; agent 2 repels it with weight 1/2.
+    actual = social_update(
+        beliefs, np.array([1, 0, 1]), np.array([2.0, 0.0, 1.0]), np.array([3.0, 6.0, 3.0]),
+        np.array([[0, 1, 0], [1, 0, -1], [0, -1, 0]]), 1.0,
+    )
+    expected = beliefs[1] + (
+        2.0 * (beliefs[0] - beliefs[1]) - 0.5 * (beliefs[2] - beliefs[1])
+    ) / 8.5
+    assert_allclose(actual[1], expected)
+    assert_array_equal(actual[[0, 2]], beliefs[[0, 2]])
+
+
+@pytest.mark.parametrize("mode", ["fixed", "fractional", "hybrid"])
+def test_edge_signs_leave_all_wealth_and_payment_trajectories_exactly_unchanged(mode):
+    ally_config = Config(n_agents=18, rounds=30, attachment=2, seed=129)
+    signed_config = replace(ally_config, opponent_fraction=0.5)
+    allies = simulate(ally_config, make_inputs(ally_config, "loguniform"), mode)
+    signed = simulate(signed_config, make_inputs(signed_config, "loguniform"), mode)
+    assert_array_equal(signed.wealth, allies.wealth)
+    assert_array_equal(signed.payments, allies.payments)
+    assert not np.array_equal(signed.beliefs, allies.beliefs)
+
+
+def test_edge_sign_draws_are_nested_and_leave_other_random_streams_unchanged():
+    config = Config(n_agents=18, rounds=10, attachment=2, seed=129)
+    ally = make_inputs(config, "uniform")
+    quarter = make_inputs(replace(config, opponent_fraction=0.25), "uniform")
+    half = make_inputs(replace(config, opponent_fraction=0.5), "uniform")
+    all_opponents = make_inputs(replace(config, opponent_fraction=1.0), "uniform")
+    for name in ("theta", "adjacency", "initial_beliefs", "initial_wealth", "observations", "recipients"):
+        assert_array_equal(getattr(ally, name), getattr(half, name))
+        assert_array_equal(getattr(ally, name), getattr(all_opponents, name))
+    assert_array_equal(ally.relationships, ally.adjacency.astype(int))
+    assert_array_equal(all_opponents.relationships, -ally.adjacency.astype(int))
+    assert np.any(half.relationships == -1)
+    assert np.any(half.relationships == 1)
+    assert np.any(quarter.relationships == -1)
+    assert np.all(half.relationships[quarter.relationships == -1] == -1)
+    assert np.any((quarter.relationships == 1) & (half.relationships == -1))
+    assert np.all(all_opponents.relationships[half.relationships == -1] == -1)
 
 
 def test_unaffordable_payments_leave_only_public_bayesian_learning():
@@ -178,8 +287,9 @@ def test_unaffordable_payments_leave_only_public_bayesian_learning():
 
 @pytest.mark.parametrize("mode", ["fixed", "fractional", "hybrid"])
 @pytest.mark.parametrize("distribution", ["uniform", "loguniform"])
-def test_simulation_preserves_probability_and_conserves_cash(mode, distribution):
-    config = Config(n_agents=18, rounds=30, attachment=2, seed=129)
+@pytest.mark.parametrize("opponent_fraction", [0.0, 0.25, 1.0])
+def test_simulation_preserves_probability_and_conserves_cash(mode, distribution, opponent_fraction):
+    config = Config(n_agents=18, rounds=30, attachment=2, seed=129, opponent_fraction=opponent_fraction)
     inputs = make_inputs(config, distribution)
     result = simulate(config, inputs, mode)
 
@@ -197,7 +307,7 @@ def test_seeded_inputs_share_exogenous_draws_across_wealth_distributions():
     uniform = make_inputs(config, "uniform")
     repeated = make_inputs(config, "uniform")
     loguniform = make_inputs(config, "loguniform")
-    for name in ("theta", "adjacency", "initial_beliefs", "observations", "recipients"):
+    for name in ("theta", "adjacency", "relationships", "initial_beliefs", "observations", "recipients"):
         assert_array_equal(getattr(uniform, name), getattr(repeated, name))
         assert_array_equal(getattr(uniform, name), getattr(loguniform, name))
     assert_array_equal(uniform.initial_wealth, repeated.initial_wealth)
@@ -240,6 +350,10 @@ def test_payment_scenario_order_does_not_mutate_prepared_inputs():
         {"fixed_payment": -1.0},
         {"wealth_fraction": -0.1},
         {"wealth_fraction": 1.1},
+        {"opponent_fraction": -0.1},
+        {"opponent_fraction": 1.1},
+        {"opponent_fraction": True},
+        {"opponent_fraction": np.nan},
     ],
 )
 def test_invalid_economic_conventions_are_rejected(invalid):
@@ -254,6 +368,12 @@ def test_invalid_economic_conventions_are_rejected(invalid):
         {"initial_beliefs": np.array([[1.1, -0.1, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]])},
         {"recipients": np.array([[2, 0, 1]])},
         {"observations": np.array([2])},
+        {"relationships": np.array([[0, 1], [1, 0]])},
+        {"relationships": np.array([[0, -1, 0], [1, 0, 1], [0, 1, 0]])},
+        {"relationships": np.array([[0, 0, 0], [0, 0, 1], [0, 1, 0]])},
+        {"relationships": np.array([[0, 1, 1], [1, 0, 1], [1, 1, 0]])},
+        {"relationships": np.array([[0, 2, 0], [2, 0, 1], [0, 1, 0]])},
+        {"relationships": np.array([[0, 1, 0], [1, 0, 1], [0, 1, 0]], dtype=float)},
     ],
 )
 def test_invalid_prepared_inputs_are_rejected(directed_round, invalid):

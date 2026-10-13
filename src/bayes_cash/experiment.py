@@ -63,14 +63,16 @@ def run_experiment(config, output):
         "upstream_commit": SOURCE_COMMIT,
         "versions": {name: version(name) for name in ("bayes-cash", "numpy", "networkx", "matplotlib")},
         "conventions": {
-            "network": "undirected Barabasi-Albert, all allies",
+            "network": "undirected Barabasi-Albert; fixed symmetric ally/opponent relationships",
             "beliefs": "probability masses on an equally spaced theta grid, including endpoints",
             "cash": "arbitrary units; no normalization of initial total wealth",
             "payments": "one uniformly sampled neighbor per payer; opening wealth; simultaneous settlement",
             "fixed_insufficient_funds": "skip the payment, with no partial payment",
             "hybrid": "pay max(fixed_payment, wealth_fraction * opening_wealth) if affordable; otherwise skip",
             "self_weight": "degree * reference_payment * (1 - social_rate) / social_rate",
-            "no_payment": "fixed_payment=0, same public evidence and initial beliefs",
+            "opponent_weight": "-reference_payment / (1 + payment / reference_payment); unpaid scheduled contacts still repel",
+            "signed_normalization": "positive part followed by probability-mass normalization for recipients of opponent contacts",
+            "no_payment": "fixed_payment=0; evidence-only if all allies, evidence plus undamped repulsion if opponents are present",
         },
         "results": {},
     }
@@ -85,6 +87,7 @@ def run_experiment(config, output):
         payload = {
             "theta": inputs.theta,
             "adjacency": inputs.adjacency,
+            "relationships": inputs.relationships,
             "initial_beliefs": inputs.initial_beliefs,
             "initial_wealth": inputs.initial_wealth,
             "observations": inputs.observations,
@@ -123,9 +126,10 @@ def run_experiment(config, output):
             axes[0, 0].axhline(config.true_bias, color="black", linestyle=":", linewidth=1, label="True bias")
         axes[0, 0].legend(fontsize=8)
         axes[1, 2].set_ylim(-0.03, 1.03)
+        realized_opponents = float(np.count_nonzero(inputs.relationships < 0) / np.count_nonzero(inputs.adjacency))
         figure.suptitle(
             f"{distribution.capitalize()} initial wealth | N={config.n_agents}, seed={config.seed}\n"
-            f"c={config.fixed_payment:g}; f={config.wealth_fraction:g}; hybrid=max(c, fW) if affordable; "
+            f"c={config.fixed_payment:g}; f={config.wealth_fraction:g}; opponents={realized_opponents:.1%}; "
             f"{'shared coin evidence' if config.public_evidence else 'no external evidence'}"
         )
         figure.savefig(output / f"{distribution}_comparison.png", dpi=160)
@@ -136,6 +140,7 @@ def run_experiment(config, output):
             "initial_total_wealth": float(inputs.initial_wealth.sum()),
             "initial_median_wealth": float(np.median(inputs.initial_wealth)),
             "sampled_heads_fraction": float(inputs.observations.mean()),
+            "realized_opponent_edge_fraction": realized_opponents,
             "scenarios": {},
         }
         for mode, result in results.items():
@@ -175,7 +180,8 @@ def main():
     parser.add_argument("--output", type=Path, default=Path("outputs/demo"))
     for name, kind in (("n_agents", int), ("rounds", int), ("attachment", int), ("grid_size", int),
                        ("seed", int), ("true_bias", float), ("social_rate", float), ("reference_payment", float),
-                       ("wealth_min", float), ("wealth_max", float), ("fixed_payment", float), ("wealth_fraction", float)):
+                       ("wealth_min", float), ("wealth_max", float), ("fixed_payment", float), ("wealth_fraction", float),
+                       ("opponent_fraction", float)):
         parser.add_argument("--" + name.replace("_", "-"), type=kind, default=getattr(Config(), name))
     parser.add_argument("--no-public-evidence", action="store_true", help="A separate social-only diagnostic; default keeps shared coin learning.")
     args = vars(parser.parse_args())
