@@ -1,0 +1,147 @@
+{
+  "config": {
+    "n_agents": 100,
+    "rounds": 500,
+    "attachment": 3,
+    "grid_size": 21,
+    "true_bias": 0.6,
+    "social_rate": 0.25,
+    "reference_payment": 1.0,
+    "wealth_min": 1.0,
+    "wealth_max": 100.0,
+    "fixed_payment": 1.0,
+    "wealth_fraction": 0.05,
+    "seed": 42,
+    "public_evidence": true
+  },
+  "upstream_url": "https://github.com/YutongB/Opinion-Dynamics",
+  "upstream_commit": "be335d44c009add15388dbdc28b9fb2c42c5fb9e",
+  "versions": {
+    "bayes-cash": "0.1.0",
+    "numpy": "2.5.4",
+    "networkx": "3.7",
+    "matplotlib": "3.11.2"
+  },
+  "conventions": {
+    "network": "undirected Barabasi-Albert, all allies",
+    "beliefs": "probability masses on an equally spaced theta grid, including endpoints",
+    "cash": "arbitrary units; no normalization of initial total wealth",
+    "payments": "one uniformly sampled neighbor per payer; opening wealth; simultaneous settlement",
+    "fixed_insufficient_funds": "skip the payment, with no partial payment",
+    "hybrid": "pay max(fixed_payment, wealth_fraction * opening_wealth) if affordable; otherwise skip",
+    "self_weight": "degree * reference_payment * (1 - social_rate) / social_rate",
+    "no_payment": "fixed_payment=0, same public evidence and initial beliefs"
+  },
+  "results": {
+    "loguniform": {
+      "initial_total_wealth": 2122.18149409441,
+      "initial_median_wealth": 11.417028774748443,
+      "sampled_heads_fraction": 0.568,
+      "scenarios": {
+        "fixed": {
+          "final_mean_opinion": 0.5660141866401593,
+          "final_opinion_disagreement": 1.2472372946004444e-05,
+          "final_belief_mse": 0.001746348260108854,
+          "initial_gini": 0.5594128373940549,
+          "final_gini": 0.9285109421110064,
+          "cumulative_cash_transferred": 22939.0,
+          "fraction_of_contact_attempts_paid": 0.45878,
+          "max_absolute_cash_conservation_error": 4.547473508864641e-13,
+          "max_belief_normalization_error": 6.661338147750939e-16,
+          "minimum_wealth": 0.016055700609541645
+        },
+        "fractional": {
+          "final_mean_opinion": 0.5660284336328841,
+          "final_opinion_disagreement": 5.0391759771911215e-08,
+          "final_belief_mse": 0.0017455456654633232,
+          "initial_gini": 0.5594128373940549,
+          "final_gini": 0.3945244192694844,
+          "cumulative_cash_transferred": 53054.53735236026,
+          "fraction_of_contact_attempts_paid": 1.0,
+          "max_absolute_cash_conservation_error": 1.8189894035458565e-12,
+          "max_belief_normalization_error": 6.661338147750939e-16,
+          "minimum_wealth": 0.8126711093092742
+        },
+        "hybrid": {
+          "final_mean_opinion": 0.5660839948388786,
+          "final_opinion_disagreement": 5.957334822800726e-09,
+          "final_belief_mse": 0.0017425313200930465,
+          "initial_gini": 0.5594128373940549,
+          "final_gini": 0.6058616979888326,
+          "cumulative_cash_transferred": 67668.26863779762,
+          "fraction_of_contact_attempts_paid": 0.87036,
+          "max_absolute_cash_conservation_error": 1.8189894035458565e-12,
+          "max_belief_normalization_error": 6.661338147750939e-16,
+          "minimum_wealth": 0.00019094391171048386
+        },
+        "no_payment": {
+          "final_mean_opinion": 0.5657938251047328,
+          "final_opinion_disagreement": 0.0015756177060559555,
+          "final_belief_mse": 0.0017584937717413291,
+          "initial_gini": 0.5594128373940549,
+          "final_gini": 0.5594128373940549,
+          "cumulative_cash_transferred": 0.0,
+          "fraction_of_contact_attempts_paid": 0.0,
+          "max_absolute_cash_conservation_error": 0.0,
+          "max_belief_normalization_error": 4.440892098500626e-16,
+          "minimum_wealth": 1.0160557006095416
+        }
+      }
+    },
+    "uniform": {
+      "initial_total_wealth": 5151.160237119604,
+      "initial_median_wealth": 53.346625623196104,
+      "sampled_heads_fraction": 0.568,
+      "scenarios": {
+        "fixed": {
+          "final_mean_opinion": 0.5660820895942323,
+          "final_opinion_disagreement": 6.488919156430765e-06,
+          "final_belief_mse": 0.00174266355258025,
+          "initial_gini": 0.31359933262480816,
+          "final_gini": 0.9001301514063222,
+          "cumulative_cash_transferred": 30336.0,
+          "fraction_of_contact_attempts_paid": 0.60672,
+          "max_absolute_cash_conservation_error": 9.094947017729282e-13,
+          "max_belief_normalization_error": 5.551115123125783e-16,
+          "minimum_wealth": 0.028048983404175942
+        },
+        "fractional": {
+          "final_mean_opinion": 0.5662200196645997,
+          "final_opinion_disagreement": 4.648433024820389e-12,
+          "final_belief_mse": 0.0017351688173106047,
+          "initial_gini": 0.31359933262480816,
+          "final_gini": 0.39452425045087364,
+          "cumulative_cash_transferred": 128779.00592799015,
+          "fraction_of_contact_attempts_paid": 1.0,
+          "max_absolute_cash_conservation_error": 4.547473508864641e-12,
+          "max_belief_normalization_error": 5.551115123125783e-16,
+          "minimum_wealth": 1.1509548457775491
+        },
+        "hybrid": {
+          "final_mean_opinion": 0.5662445015230111,
+          "final_opinion_disagreement": 4.357896186885098e-12,
+          "final_belief_mse": 0.0017338312788202762,
+          "initial_gini": 0.31359933262480816,
+          "final_gini": 0.4087483481308913,
+          "cumulative_cash_transferred": 130324.59564915855,
+          "fraction_of_contact_attempts_paid": 0.99716,
+          "max_absolute_cash_conservation_error": 3.637978807091713e-12,
+          "max_belief_normalization_error": 6.661338147750939e-16,
+          "minimum_wealth": 0.012648718839143314
+        },
+        "no_payment": {
+          "final_mean_opinion": 0.5657938251047328,
+          "final_opinion_disagreement": 0.0015756177060559555,
+          "final_belief_mse": 0.0017584937717413291,
+          "initial_gini": 0.31359933262480816,
+          "final_gini": 0.31359933262480816,
+          "cumulative_cash_transferred": 0.0,
+          "fraction_of_contact_attempts_paid": 0.0,
+          "max_absolute_cash_conservation_error": 0.0,
+          "max_belief_normalization_error": 4.440892098500626e-16,
+          "minimum_wealth": 1.3424170821140682
+        }
+      }
+    }
+  }
+}

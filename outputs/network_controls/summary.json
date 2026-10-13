@@ -1,0 +1,1215 @@
+{
+  "config": {
+    "n_agents": 100,
+    "rounds": 5000,
+    "attachment": 3,
+    "grid_size": 21,
+    "true_bias": 0.6,
+    "social_rate": 0.25,
+    "reference_payment": 1.0,
+    "wealth_min": 1.0,
+    "wealth_max": 100.0,
+    "fixed_payment": 1.0,
+    "wealth_fraction": 0.05,
+    "seed": 42,
+    "public_evidence": true
+  },
+  "seeds": [
+    42,
+    43,
+    44,
+    45,
+    46,
+    47,
+    48,
+    49,
+    50,
+    51,
+    52,
+    53,
+    54,
+    55,
+    56,
+    57,
+    58,
+    59,
+    60,
+    61
+  ],
+  "horizons": [
+    500,
+    5000
+  ],
+  "versions": {
+    "bayes-cash": "0.1.0",
+    "numpy": "2.5.4",
+    "networkx": "3.7",
+    "matplotlib": "3.11.2"
+  },
+  "conventions": {
+    "cash_only": "beliefs cannot change contacts or payments; exact cash subsystem",
+    "pairing": "identical initial wealth across topology and mode; contacts shared across modes",
+    "topologies": "BA attachment m; connected random regular degree 2m; complete graph",
+    "randomness": "original make_inputs prefix through round 500; independent seeded continuation",
+    "uncertainty": "sample SD across seeds, not confidence intervals",
+    "limitations": "finite horizons; regular and BA mean degrees are close but unequal; complete graph also changes density",
+    "correlation": "degree-wealth Pearson correlation undefined and omitted for regular/complete graphs"
+  },
+  "groups": [
+    {
+      "distribution": "loguniform",
+      "horizon": 500,
+      "topology": "barabasi_albert",
+      "mode": "fixed",
+      "initial_gini": {
+        "mean": 0.5768607495825843,
+        "sample_sd": 0.01563104166799361
+      },
+      "gini": {
+        "mean": 0.9259993777945354,
+        "sample_sd": 0.014420416336040751
+      },
+      "top_decile_share": {
+        "mean": 0.958511026390975,
+        "sample_sd": 0.020435117620594734
+      },
+      "degree_wealth_correlation": {
+        "mean": 0.8463038873215749,
+        "sample_sd": 0.022745529294005893
+      },
+      "mean_payment_per_agent_round": {
+        "mean": 0.465879,
+        "sample_sd": 0.03514771743730496
+      },
+      "fraction_contact_attempts_paid": {
+        "mean": 0.465879,
+        "sample_sd": 0.03514771743730496
+      }
+    },
+    {
+      "distribution": "loguniform",
+      "horizon": 500,
+      "topology": "regular",
+      "mode": "fixed",
+      "initial_gini": {
+        "mean": 0.5768607495825843,
+        "sample_sd": 0.01563104166799361
+      },
+      "gini": {
+        "mean": 0.5054928150127611,
+        "sample_sd": 0.027552943819670977
+      },
+      "top_decile_share": {
+        "mean": 0.3373076641190454,
+        "sample_sd": 0.029262240350831848
+      },
+      "mean_payment_per_agent_round": {
+        "mean": 0.972251,
+        "sample_sd": 0.004085179761554011
+      },
+      "fraction_contact_attempts_paid": {
+        "mean": 0.972251,
+        "sample_sd": 0.004085179761554011
+      }
+    },
+    {
+      "distribution": "loguniform",
+      "horizon": 500,
+      "topology": "complete",
+      "mode": "fixed",
+      "initial_gini": {
+        "mean": 0.5768607495825843,
+        "sample_sd": 0.01563104166799361
+      },
+      "gini": {
+        "mean": 0.5037318286292055,
+        "sample_sd": 0.019143315134048815
+      },
+      "top_decile_share": {
+        "mean": 0.33510243757387254,
+        "sample_sd": 0.021756398280455825
+      },
+      "mean_payment_per_agent_round": {
+        "mean": 0.9710889999999999,
+        "sample_sd": 0.0036218545700118544
+      },
+      "fraction_contact_attempts_paid": {
+        "mean": 0.9710889999999999,
+        "sample_sd": 0.0036218545700118544
+      }
+    },
+    {
+      "distribution": "loguniform",
+      "horizon": 500,
+      "topology": "barabasi_albert",
+      "mode": "fractional",
+      "initial_gini": {
+        "mean": 0.5768607495825843,
+        "sample_sd": 0.01563104166799361
+      },
+      "gini": {
+        "mean": 0.3692410924146664,
+        "sample_sd": 0.016435610574982076
+      },
+      "top_decile_share": {
+        "mean": 0.29682713613283207,
+        "sample_sd": 0.02188653740904912
+      },
+      "degree_wealth_correlation": {
+        "mean": 0.9653825339145887,
+        "sample_sd": 0.006203350459680838
+      },
+      "mean_payment_per_agent_round": {
+        "mean": 1.0677349198647492,
+        "sample_sd": 0.12304519695106739
+      },
+      "fraction_contact_attempts_paid": {
+        "mean": 1.0,
+        "sample_sd": 0.0
+      }
+    },
+    {
+      "distribution": "loguniform",
+      "horizon": 500,
+      "topology": "regular",
+      "mode": "fractional",
+      "initial_gini": {
+        "mean": 0.5768607495825843,
+        "sample_sd": 0.01563104166799361
+      },
+      "gini": {
+        "mean": 0.08769447112821767,
+        "sample_sd": 0.0059971875449972446
+      },
+      "top_decile_share": {
+        "mean": 0.12810304055628938,
+        "sample_sd": 0.0027754121795539196
+      },
+      "mean_payment_per_agent_round": {
+        "mean": 1.0677349198647492,
+        "sample_sd": 0.1230451969510674
+      },
+      "fraction_contact_attempts_paid": {
+        "mean": 1.0,
+        "sample_sd": 0.0
+      }
+    },
+    {
+      "distribution": "loguniform",
+      "horizon": 500,
+      "topology": "complete",
+      "mode": "fractional",
+      "initial_gini": {
+        "mean": 0.5768607495825843,
+        "sample_sd": 0.01563104166799361
+      },
+      "gini": {
+        "mean": 0.08906268911902267,
+        "sample_sd": 0.006216064845132105
+      },
+      "top_decile_share": {
+        "mean": 0.12826419816587217,
+        "sample_sd": 0.002733502403766915
+      },
+      "mean_payment_per_agent_round": {
+        "mean": 1.067734919864749,
+        "sample_sd": 0.1230451969510674
+      },
+      "fraction_contact_attempts_paid": {
+        "mean": 1.0,
+        "sample_sd": 0.0
+      }
+    },
+    {
+      "distribution": "loguniform",
+      "horizon": 500,
+      "topology": "barabasi_albert",
+      "mode": "hybrid",
+      "initial_gini": {
+        "mean": 0.5768607495825843,
+        "sample_sd": 0.01563104166799361
+      },
+      "gini": {
+        "mean": 0.5803913619238026,
+        "sample_sd": 0.03311194379344244
+      },
+      "top_decile_share": {
+        "mean": 0.3781318586789926,
+        "sample_sd": 0.03020989415867768
+      },
+      "degree_wealth_correlation": {
+        "mean": 0.9564698755091363,
+        "sample_sd": 0.006315322781809853
+      },
+      "mean_payment_per_agent_round": {
+        "mean": 1.354364346058342,
+        "sample_sd": 0.09850417242896739
+      },
+      "fraction_contact_attempts_paid": {
+        "mean": 0.868732,
+        "sample_sd": 0.027066025625457
+      }
+    },
+    {
+      "distribution": "loguniform",
+      "horizon": 500,
+      "topology": "regular",
+      "mode": "hybrid",
+      "initial_gini": {
+        "mean": 0.5768607495825843,
+        "sample_sd": 0.01563104166799361
+      },
+      "gini": {
+        "mean": 0.1371780767133927,
+        "sample_sd": 0.03374880399776434
+      },
+      "top_decile_share": {
+        "mean": 0.13733995958256145,
+        "sample_sd": 0.007434635269832196
+      },
+      "mean_payment_per_agent_round": {
+        "mean": 1.1705704842105047,
+        "sample_sd": 0.07617229396645582
+      },
+      "fraction_contact_attempts_paid": {
+        "mean": 0.997532,
+        "sample_sd": 0.0013009211311504245
+      }
+    },
+    {
+      "distribution": "loguniform",
+      "horizon": 500,
+      "topology": "complete",
+      "mode": "hybrid",
+      "initial_gini": {
+        "mean": 0.5768607495825843,
+        "sample_sd": 0.01563104166799361
+      },
+      "gini": {
+        "mean": 0.13592071098887604,
+        "sample_sd": 0.03072301209881426
+      },
+      "top_decile_share": {
+        "mean": 0.13704431169708503,
+        "sample_sd": 0.006663982440436509
+      },
+      "mean_payment_per_agent_round": {
+        "mean": 1.1640632429992088,
+        "sample_sd": 0.07737328066965166
+      },
+      "fraction_contact_attempts_paid": {
+        "mean": 0.9979849999999999,
+        "sample_sd": 0.001090125535986804
+      }
+    },
+    {
+      "distribution": "loguniform",
+      "horizon": 5000,
+      "topology": "barabasi_albert",
+      "mode": "fixed",
+      "initial_gini": {
+        "mean": 0.5768607495825843,
+        "sample_sd": 0.01563104166799361
+      },
+      "gini": {
+        "mean": 0.9615478834454839,
+        "sample_sd": 0.0072588171669732806
+      },
+      "top_decile_share": {
+        "mean": 0.9744772655133896,
+        "sample_sd": 0.0038615179756413547
+      },
+      "degree_wealth_correlation": {
+        "mean": 0.6413729537951867,
+        "sample_sd": 0.06611723250660925
+      },
+      "mean_payment_per_agent_round": {
+        "mean": 0.271532,
+        "sample_sd": 0.03770455099712416
+      },
+      "fraction_contact_attempts_paid": {
+        "mean": 0.271532,
+        "sample_sd": 0.03770455099712416
+      }
+    },
+    {
+      "distribution": "loguniform",
+      "horizon": 5000,
+      "topology": "regular",
+      "mode": "fixed",
+      "initial_gini": {
+        "mean": 0.5768607495825843,
+        "sample_sd": 0.01563104166799361
+      },
+      "gini": {
+        "mean": 0.49988351964193456,
+        "sample_sd": 0.025220983456629934
+      },
+      "top_decile_share": {
+        "mean": 0.33081503097556486,
+        "sample_sd": 0.022144903917412955
+      },
+      "mean_payment_per_agent_round": {
+        "mean": 0.9763565,
+        "sample_sd": 0.003037103874971765
+      },
+      "fraction_contact_attempts_paid": {
+        "mean": 0.9763565,
+        "sample_sd": 0.003037103874971765
+      }
+    },
+    {
+      "distribution": "loguniform",
+      "horizon": 5000,
+      "topology": "complete",
+      "mode": "fixed",
+      "initial_gini": {
+        "mean": 0.5768607495825843,
+        "sample_sd": 0.01563104166799361
+      },
+      "gini": {
+        "mean": 0.49156081563320175,
+        "sample_sd": 0.030614412229725368
+      },
+      "top_decile_share": {
+        "mean": 0.32446100430436886,
+        "sample_sd": 0.033152613417658704
+      },
+      "mean_payment_per_agent_round": {
+        "mean": 0.9749237,
+        "sample_sd": 0.002749517490684303
+      },
+      "fraction_contact_attempts_paid": {
+        "mean": 0.9749237,
+        "sample_sd": 0.002749517490684303
+      }
+    },
+    {
+      "distribution": "loguniform",
+      "horizon": 5000,
+      "topology": "barabasi_albert",
+      "mode": "fractional",
+      "initial_gini": {
+        "mean": 0.5768607495825843,
+        "sample_sd": 0.01563104166799361
+      },
+      "gini": {
+        "mean": 0.3711483204934136,
+        "sample_sd": 0.01773997367705037
+      },
+      "top_decile_share": {
+        "mean": 0.300820363345626,
+        "sample_sd": 0.018786773843337632
+      },
+      "degree_wealth_correlation": {
+        "mean": 0.9669948136251056,
+        "sample_sd": 0.006485582014850546
+      },
+      "mean_payment_per_agent_round": {
+        "mean": 1.0677349198647526,
+        "sample_sd": 0.1230451969510677
+      },
+      "fraction_contact_attempts_paid": {
+        "mean": 1.0,
+        "sample_sd": 0.0
+      }
+    },
+    {
+      "distribution": "loguniform",
+      "horizon": 5000,
+      "topology": "regular",
+      "mode": "fractional",
+      "initial_gini": {
+        "mean": 0.5768607495825843,
+        "sample_sd": 0.01563104166799361
+      },
+      "gini": {
+        "mean": 0.09069620440295897,
+        "sample_sd": 0.008293690688272171
+      },
+      "top_decile_share": {
+        "mean": 0.12974497765570359,
+        "sample_sd": 0.004252280431563521
+      },
+      "mean_payment_per_agent_round": {
+        "mean": 1.0677349198647514,
+        "sample_sd": 0.12304519695106725
+      },
+      "fraction_contact_attempts_paid": {
+        "mean": 1.0,
+        "sample_sd": 0.0
+      }
+    },
+    {
+      "distribution": "loguniform",
+      "horizon": 5000,
+      "topology": "complete",
+      "mode": "fractional",
+      "initial_gini": {
+        "mean": 0.5768607495825843,
+        "sample_sd": 0.01563104166799361
+      },
+      "gini": {
+        "mean": 0.09035335545949455,
+        "sample_sd": 0.004844976778188465
+      },
+      "top_decile_share": {
+        "mean": 0.12928788091166254,
+        "sample_sd": 0.0024283217405486647
+      },
+      "mean_payment_per_agent_round": {
+        "mean": 1.0677349198647517,
+        "sample_sd": 0.12304519695106726
+      },
+      "fraction_contact_attempts_paid": {
+        "mean": 1.0,
+        "sample_sd": 0.0
+      }
+    },
+    {
+      "distribution": "loguniform",
+      "horizon": 5000,
+      "topology": "barabasi_albert",
+      "mode": "hybrid",
+      "initial_gini": {
+        "mean": 0.5768607495825843,
+        "sample_sd": 0.01563104166799361
+      },
+      "gini": {
+        "mean": 0.5835798540393681,
+        "sample_sd": 0.033010093169195454
+      },
+      "top_decile_share": {
+        "mean": 0.3839636320490981,
+        "sample_sd": 0.024262646266361775
+      },
+      "degree_wealth_correlation": {
+        "mean": 0.9602716179069297,
+        "sample_sd": 0.005298875868785281
+      },
+      "mean_payment_per_agent_round": {
+        "mean": 1.3589176193692731,
+        "sample_sd": 0.09819662923406966
+      },
+      "fraction_contact_attempts_paid": {
+        "mean": 0.8649765,
+        "sample_sd": 0.02810503898535672
+      }
+    },
+    {
+      "distribution": "loguniform",
+      "horizon": 5000,
+      "topology": "regular",
+      "mode": "hybrid",
+      "initial_gini": {
+        "mean": 0.5768607495825843,
+        "sample_sd": 0.01563104166799361
+      },
+      "gini": {
+        "mean": 0.14041864546845378,
+        "sample_sd": 0.03537000016424298
+      },
+      "top_decile_share": {
+        "mean": 0.13852964626180025,
+        "sample_sd": 0.007889741179804755
+      },
+      "mean_payment_per_agent_round": {
+        "mean": 1.1515765321600502,
+        "sample_sd": 0.07591335245830327
+      },
+      "fraction_contact_attempts_paid": {
+        "mean": 0.9987710999999999,
+        "sample_sd": 0.0010843999019588628
+      }
+    },
+    {
+      "distribution": "loguniform",
+      "horizon": 5000,
+      "topology": "complete",
+      "mode": "hybrid",
+      "initial_gini": {
+        "mean": 0.5768607495825843,
+        "sample_sd": 0.01563104166799361
+      },
+      "gini": {
+        "mean": 0.13869752419691933,
+        "sample_sd": 0.03536403037900146
+      },
+      "top_decile_share": {
+        "mean": 0.13837509639805504,
+        "sample_sd": 0.0069614555682154106
+      },
+      "mean_payment_per_agent_round": {
+        "mean": 1.1505443194581964,
+        "sample_sd": 0.07636498606724366
+      },
+      "fraction_contact_attempts_paid": {
+        "mean": 0.9988273999999999,
+        "sample_sd": 0.0010790290177065019
+      }
+    },
+    {
+      "distribution": "uniform",
+      "horizon": 500,
+      "topology": "barabasi_albert",
+      "mode": "fixed",
+      "initial_gini": {
+        "mean": 0.31806698026862806,
+        "sample_sd": 0.013563082563067128
+      },
+      "gini": {
+        "mean": 0.8999232391410136,
+        "sample_sd": 0.018675561090188714
+      },
+      "top_decile_share": {
+        "mean": 0.8739378646284803,
+        "sample_sd": 0.06121118721143744
+      },
+      "degree_wealth_correlation": {
+        "mean": 0.924425891574764,
+        "sample_sd": 0.010775371852021926
+      },
+      "mean_payment_per_agent_round": {
+        "mean": 0.611786,
+        "sample_sd": 0.024183892072813132
+      },
+      "fraction_contact_attempts_paid": {
+        "mean": 0.611786,
+        "sample_sd": 0.024183892072813132
+      }
+    },
+    {
+      "distribution": "uniform",
+      "horizon": 500,
+      "topology": "regular",
+      "mode": "fixed",
+      "initial_gini": {
+        "mean": 0.31806698026862806,
+        "sample_sd": 0.013563082563067128
+      },
+      "gini": {
+        "mean": 0.34899483276326354,
+        "sample_sd": 0.018575221041471416
+      },
+      "top_decile_share": {
+        "mean": 0.20924813961769032,
+        "sample_sd": 0.010149805083933665
+      },
+      "mean_payment_per_agent_round": {
+        "mean": 0.995484,
+        "sample_sd": 0.0011512117186046266
+      },
+      "fraction_contact_attempts_paid": {
+        "mean": 0.995484,
+        "sample_sd": 0.0011512117186046266
+      }
+    },
+    {
+      "distribution": "uniform",
+      "horizon": 500,
+      "topology": "complete",
+      "mode": "fixed",
+      "initial_gini": {
+        "mean": 0.31806698026862806,
+        "sample_sd": 0.013563082563067128
+      },
+      "gini": {
+        "mean": 0.3512692236061682,
+        "sample_sd": 0.01734720485742682
+      },
+      "top_decile_share": {
+        "mean": 0.21284309823451597,
+        "sample_sd": 0.00820074763384634
+      },
+      "mean_payment_per_agent_round": {
+        "mean": 0.994877,
+        "sample_sd": 0.0013171464371291837
+      },
+      "fraction_contact_attempts_paid": {
+        "mean": 0.994877,
+        "sample_sd": 0.0013171464371291837
+      }
+    },
+    {
+      "distribution": "uniform",
+      "horizon": 500,
+      "topology": "barabasi_albert",
+      "mode": "fractional",
+      "initial_gini": {
+        "mean": 0.31806698026862806,
+        "sample_sd": 0.013563082563067128
+      },
+      "gini": {
+        "mean": 0.3692409496452752,
+        "sample_sd": 0.01643562470339189
+      },
+      "top_decile_share": {
+        "mean": 0.2968260068477137,
+        "sample_sd": 0.02188732426677756
+      },
+      "degree_wealth_correlation": {
+        "mean": 0.9653825127391867,
+        "sample_sd": 0.006203612842657675
+      },
+      "mean_payment_per_agent_round": {
+        "mean": 2.5393673638844496,
+        "sample_sd": 0.1164711462703889
+      },
+      "fraction_contact_attempts_paid": {
+        "mean": 1.0,
+        "sample_sd": 0.0
+      }
+    },
+    {
+      "distribution": "uniform",
+      "horizon": 500,
+      "topology": "regular",
+      "mode": "fractional",
+      "initial_gini": {
+        "mean": 0.31806698026862806,
+        "sample_sd": 0.013563082563067128
+      },
+      "gini": {
+        "mean": 0.08769415789686304,
+        "sample_sd": 0.005995591308346459
+      },
+      "top_decile_share": {
+        "mean": 0.12810282625524202,
+        "sample_sd": 0.0027741012523579737
+      },
+      "mean_payment_per_agent_round": {
+        "mean": 2.5393673638844483,
+        "sample_sd": 0.11647114627038893
+      },
+      "fraction_contact_attempts_paid": {
+        "mean": 1.0,
+        "sample_sd": 0.0
+      }
+    },
+    {
+      "distribution": "uniform",
+      "horizon": 500,
+      "topology": "complete",
+      "mode": "fractional",
+      "initial_gini": {
+        "mean": 0.31806698026862806,
+        "sample_sd": 0.013563082563067128
+      },
+      "gini": {
+        "mean": 0.08906268911912654,
+        "sample_sd": 0.006216064845175794
+      },
+      "top_decile_share": {
+        "mean": 0.1282641981659058,
+        "sample_sd": 0.00273350240377117
+      },
+      "mean_payment_per_agent_round": {
+        "mean": 2.5393673638844483,
+        "sample_sd": 0.1164711462703889
+      },
+      "fraction_contact_attempts_paid": {
+        "mean": 1.0,
+        "sample_sd": 0.0
+      }
+    },
+    {
+      "distribution": "uniform",
+      "horizon": 500,
+      "topology": "barabasi_albert",
+      "mode": "hybrid",
+      "initial_gini": {
+        "mean": 0.31806698026862806,
+        "sample_sd": 0.013563082563067128
+      },
+      "gini": {
+        "mean": 0.38471445658346204,
+        "sample_sd": 0.01741544904624348
+      },
+      "top_decile_share": {
+        "mean": 0.3008967882170713,
+        "sample_sd": 0.021950941502582595
+      },
+      "degree_wealth_correlation": {
+        "mean": 0.9628346827490739,
+        "sample_sd": 0.00650726904283763
+      },
+      "mean_payment_per_agent_round": {
+        "mean": 2.575252928940407,
+        "sample_sd": 0.11046595523808207
+      },
+      "fraction_contact_attempts_paid": {
+        "mean": 0.995167,
+        "sample_sd": 0.0019158538016961655
+      }
+    },
+    {
+      "distribution": "uniform",
+      "horizon": 500,
+      "topology": "regular",
+      "mode": "hybrid",
+      "initial_gini": {
+        "mean": 0.31806698026862806,
+        "sample_sd": 0.013563082563067128
+      },
+      "gini": {
+        "mean": 0.08769706948400263,
+        "sample_sd": 0.006000014245675011
+      },
+      "top_decile_share": {
+        "mean": 0.12810298589849303,
+        "sample_sd": 0.0027740580960466843
+      },
+      "mean_payment_per_agent_round": {
+        "mean": 2.5404812236010503,
+        "sample_sd": 0.11635179970659314
+      },
+      "fraction_contact_attempts_paid": {
+        "mean": 0.999986,
+        "sample_sd": 2.5214866124642337e-05
+      }
+    },
+    {
+      "distribution": "uniform",
+      "horizon": 500,
+      "topology": "complete",
+      "mode": "hybrid",
+      "initial_gini": {
+        "mean": 0.31806698026862806,
+        "sample_sd": 0.013563082563067128
+      },
+      "gini": {
+        "mean": 0.08906268911912135,
+        "sample_sd": 0.00621606484517328
+      },
+      "top_decile_share": {
+        "mean": 0.1282641981659055,
+        "sample_sd": 0.0027335024037749866
+      },
+      "mean_payment_per_agent_round": {
+        "mean": 2.5404545449238864,
+        "sample_sd": 0.1163576501741744
+      },
+      "fraction_contact_attempts_paid": {
+        "mean": 0.999973,
+        "sample_sd": 4.317650433182233e-05
+      }
+    },
+    {
+      "distribution": "uniform",
+      "horizon": 5000,
+      "topology": "barabasi_albert",
+      "mode": "fixed",
+      "initial_gini": {
+        "mean": 0.31806698026862806,
+        "sample_sd": 0.013563082563067128
+      },
+      "gini": {
+        "mean": 0.9652815284541036,
+        "sample_sd": 0.007994623265878138
+      },
+      "top_decile_share": {
+        "mean": 0.9886144436715327,
+        "sample_sd": 0.001572847508845651
+      },
+      "degree_wealth_correlation": {
+        "mean": 0.7183779720266631,
+        "sample_sd": 0.03779159927287823
+      },
+      "mean_payment_per_agent_round": {
+        "mean": 0.32054819999999995,
+        "sample_sd": 0.035669014569776766
+      },
+      "fraction_contact_attempts_paid": {
+        "mean": 0.32054819999999995,
+        "sample_sd": 0.035669014569776766
+      }
+    },
+    {
+      "distribution": "uniform",
+      "horizon": 5000,
+      "topology": "regular",
+      "mode": "fixed",
+      "initial_gini": {
+        "mean": 0.31806698026862806,
+        "sample_sd": 0.013563082563067128
+      },
+      "gini": {
+        "mean": 0.449476762799599,
+        "sample_sd": 0.025614989446222577
+      },
+      "top_decile_share": {
+        "mean": 0.2747133094404355,
+        "sample_sd": 0.020993602618223074
+      },
+      "mean_payment_per_agent_round": {
+        "mean": 0.9934926000000001,
+        "sample_sd": 0.0008668007966382089
+      },
+      "fraction_contact_attempts_paid": {
+        "mean": 0.9934926000000001,
+        "sample_sd": 0.0008668007966382089
+      }
+    },
+    {
+      "distribution": "uniform",
+      "horizon": 5000,
+      "topology": "complete",
+      "mode": "fixed",
+      "initial_gini": {
+        "mean": 0.31806698026862806,
+        "sample_sd": 0.013563082563067128
+      },
+      "gini": {
+        "mean": 0.4645325243674314,
+        "sample_sd": 0.03504024737751526
+      },
+      "top_decile_share": {
+        "mean": 0.29361410315554787,
+        "sample_sd": 0.02727505127793622
+      },
+      "mean_payment_per_agent_round": {
+        "mean": 0.9922879,
+        "sample_sd": 0.0009447671893674364
+      },
+      "fraction_contact_attempts_paid": {
+        "mean": 0.9922879,
+        "sample_sd": 0.0009447671893674364
+      }
+    },
+    {
+      "distribution": "uniform",
+      "horizon": 5000,
+      "topology": "barabasi_albert",
+      "mode": "fractional",
+      "initial_gini": {
+        "mean": 0.31806698026862806,
+        "sample_sd": 0.013563082563067128
+      },
+      "gini": {
+        "mean": 0.3711483204934137,
+        "sample_sd": 0.017739973677050366
+      },
+      "top_decile_share": {
+        "mean": 0.300820363345626,
+        "sample_sd": 0.018786773843337667
+      },
+      "degree_wealth_correlation": {
+        "mean": 0.9669948136251056,
+        "sample_sd": 0.006485582014850598
+      },
+      "mean_payment_per_agent_round": {
+        "mean": 2.5393673638844563,
+        "sample_sd": 0.11647114627038947
+      },
+      "fraction_contact_attempts_paid": {
+        "mean": 1.0,
+        "sample_sd": 0.0
+      }
+    },
+    {
+      "distribution": "uniform",
+      "horizon": 5000,
+      "topology": "regular",
+      "mode": "fractional",
+      "initial_gini": {
+        "mean": 0.31806698026862806,
+        "sample_sd": 0.013563082563067128
+      },
+      "gini": {
+        "mean": 0.09069620440295897,
+        "sample_sd": 0.008293690688272168
+      },
+      "top_decile_share": {
+        "mean": 0.12974497765570342,
+        "sample_sd": 0.004252280431563511
+      },
+      "mean_payment_per_agent_round": {
+        "mean": 2.5393673638844527,
+        "sample_sd": 0.11647114627038901
+      },
+      "fraction_contact_attempts_paid": {
+        "mean": 1.0,
+        "sample_sd": 0.0
+      }
+    },
+    {
+      "distribution": "uniform",
+      "horizon": 5000,
+      "topology": "complete",
+      "mode": "fractional",
+      "initial_gini": {
+        "mean": 0.31806698026862806,
+        "sample_sd": 0.013563082563067128
+      },
+      "gini": {
+        "mean": 0.09035335545949455,
+        "sample_sd": 0.004844976778188463
+      },
+      "top_decile_share": {
+        "mean": 0.12928788091166232,
+        "sample_sd": 0.0024283217405486647
+      },
+      "mean_payment_per_agent_round": {
+        "mean": 2.5393673638844536,
+        "sample_sd": 0.11647114627038899
+      },
+      "fraction_contact_attempts_paid": {
+        "mean": 1.0,
+        "sample_sd": 0.0
+      }
+    },
+    {
+      "distribution": "uniform",
+      "horizon": 5000,
+      "topology": "barabasi_albert",
+      "mode": "hybrid",
+      "initial_gini": {
+        "mean": 0.31806698026862806,
+        "sample_sd": 0.013563082563067128
+      },
+      "gini": {
+        "mean": 0.3863226648854801,
+        "sample_sd": 0.019682031035543675
+      },
+      "top_decile_share": {
+        "mean": 0.304908285297542,
+        "sample_sd": 0.019427359969321524
+      },
+      "degree_wealth_correlation": {
+        "mean": 0.9651867382073807,
+        "sample_sd": 0.006562368301922128
+      },
+      "mean_payment_per_agent_round": {
+        "mean": 2.574881001626182,
+        "sample_sd": 0.11023972938512044
+      },
+      "fraction_contact_attempts_paid": {
+        "mean": 0.9954101999999999,
+        "sample_sd": 0.0016768766580508646
+      }
+    },
+    {
+      "distribution": "uniform",
+      "horizon": 5000,
+      "topology": "regular",
+      "mode": "hybrid",
+      "initial_gini": {
+        "mean": 0.31806698026862806,
+        "sample_sd": 0.013563082563067128
+      },
+      "gini": {
+        "mean": 0.09069620440303519,
+        "sample_sd": 0.008293690688265312
+      },
+      "top_decile_share": {
+        "mean": 0.1297449776557083,
+        "sample_sd": 0.004252280431562082
+      },
+      "mean_payment_per_agent_round": {
+        "mean": 2.5394788650582774,
+        "sample_sd": 0.11645900373139986
+      },
+      "fraction_contact_attempts_paid": {
+        "mean": 0.9999986000000002,
+        "sample_sd": 2.5214866124558444e-06
+      }
+    },
+    {
+      "distribution": "uniform",
+      "horizon": 5000,
+      "topology": "complete",
+      "mode": "hybrid",
+      "initial_gini": {
+        "mean": 0.31806698026862806,
+        "sample_sd": 0.013563082563067128
+      },
+      "gini": {
+        "mean": 0.09035361999119296,
+        "sample_sd": 0.004845056240515442
+      },
+      "top_decile_share": {
+        "mean": 0.1292879148484219,
+        "sample_sd": 0.0024283455255217678
+      },
+      "mean_payment_per_agent_round": {
+        "mean": 2.539476220375726,
+        "sample_sd": 0.11645974171027754
+      },
+      "fraction_contact_attempts_paid": {
+        "mean": 0.9999973000000001,
+        "sample_sd": 4.317650433180703e-06
+      }
+    }
+  ],
+  "paired_contrasts": [
+    {
+      "distribution": "loguniform",
+      "horizon": 500,
+      "control": "regular",
+      "fixed_BA_minus_control": {
+        "mean": 0.42050656278177445,
+        "sample_sd": 0.02984230238076075
+      },
+      "fractional_BA_minus_control": {
+        "mean": 0.2815466212864487,
+        "sample_sd": 0.017974697688039425
+      },
+      "hybrid_BA_minus_control": {
+        "mean": 0.44321328521040987,
+        "sample_sd": 0.024962546251408264
+      },
+      "fixed_minus_fractional_interaction": {
+        "mean": 0.1389599414953257,
+        "sample_sd": 0.028396240402362615
+      }
+    },
+    {
+      "distribution": "loguniform",
+      "horizon": 500,
+      "control": "complete",
+      "fixed_BA_minus_control": {
+        "mean": 0.42226754916533,
+        "sample_sd": 0.01989074570582995
+      },
+      "fractional_BA_minus_control": {
+        "mean": 0.2801784032956437,
+        "sample_sd": 0.017502437727359703
+      },
+      "hybrid_BA_minus_control": {
+        "mean": 0.4444706509349265,
+        "sample_sd": 0.023095779323617883
+      },
+      "fixed_minus_fractional_interaction": {
+        "mean": 0.14208914586968635,
+        "sample_sd": 0.020841823872525336
+      }
+    },
+    {
+      "distribution": "loguniform",
+      "horizon": 5000,
+      "control": "regular",
+      "fixed_BA_minus_control": {
+        "mean": 0.46166436380354936,
+        "sample_sd": 0.026749067392605238
+      },
+      "fractional_BA_minus_control": {
+        "mean": 0.2804521160904547,
+        "sample_sd": 0.021624697267492568
+      },
+      "hybrid_BA_minus_control": {
+        "mean": 0.44316120857091423,
+        "sample_sd": 0.026233277461633425
+      },
+      "fixed_minus_fractional_interaction": {
+        "mean": 0.1812122477130947,
+        "sample_sd": 0.02780468482169014
+      }
+    },
+    {
+      "distribution": "loguniform",
+      "horizon": 5000,
+      "control": "complete",
+      "fixed_BA_minus_control": {
+        "mean": 0.46998706781228206,
+        "sample_sd": 0.026751080835329573
+      },
+      "fractional_BA_minus_control": {
+        "mean": 0.2807949650339191,
+        "sample_sd": 0.018258787502179543
+      },
+      "hybrid_BA_minus_control": {
+        "mean": 0.4448823298424488,
+        "sample_sd": 0.022459654101591058
+      },
+      "fixed_minus_fractional_interaction": {
+        "mean": 0.1891921027783629,
+        "sample_sd": 0.03521262617441312
+      }
+    },
+    {
+      "distribution": "uniform",
+      "horizon": 500,
+      "control": "regular",
+      "fixed_BA_minus_control": {
+        "mean": 0.5509284063777502,
+        "sample_sd": 0.024255654889566318
+      },
+      "fractional_BA_minus_control": {
+        "mean": 0.28154679174841213,
+        "sample_sd": 0.017974342404455997
+      },
+      "hybrid_BA_minus_control": {
+        "mean": 0.2970173870994594,
+        "sample_sd": 0.018807493049524227
+      },
+      "fixed_minus_fractional_interaction": {
+        "mean": 0.2693816146293381,
+        "sample_sd": 0.020613813333115506
+      }
+    },
+    {
+      "distribution": "uniform",
+      "horizon": 500,
+      "control": "complete",
+      "fixed_BA_minus_control": {
+        "mean": 0.5486540155348456,
+        "sample_sd": 0.02443900992086938
+      },
+      "fractional_BA_minus_control": {
+        "mean": 0.2801782605261486,
+        "sample_sd": 0.017502385980010318
+      },
+      "hybrid_BA_minus_control": {
+        "mean": 0.2956517674643407,
+        "sample_sd": 0.018638126885334227
+      },
+      "fixed_minus_fractional_interaction": {
+        "mean": 0.268475755008697,
+        "sample_sd": 0.024898378764878108
+      }
+    },
+    {
+      "distribution": "uniform",
+      "horizon": 5000,
+      "control": "regular",
+      "fixed_BA_minus_control": {
+        "mean": 0.5158047656545046,
+        "sample_sd": 0.025728126079572877
+      },
+      "fractional_BA_minus_control": {
+        "mean": 0.2804521160904547,
+        "sample_sd": 0.02162469726749256
+      },
+      "hybrid_BA_minus_control": {
+        "mean": 0.2956264604824449,
+        "sample_sd": 0.02352115704964057
+      },
+      "fixed_minus_fractional_interaction": {
+        "mean": 0.23535264956404997,
+        "sample_sd": 0.03120077030124434
+      }
+    },
+    {
+      "distribution": "uniform",
+      "horizon": 5000,
+      "control": "complete",
+      "fixed_BA_minus_control": {
+        "mean": 0.5007490040866721,
+        "sample_sd": 0.03325968174359135
+      },
+      "fractional_BA_minus_control": {
+        "mean": 0.28079496503391915,
+        "sample_sd": 0.018258787502179536
+      },
+      "hybrid_BA_minus_control": {
+        "mean": 0.2959690448942872,
+        "sample_sd": 0.020159424435249887
+      },
+      "fixed_minus_fractional_interaction": {
+        "mean": 0.2199540390527531,
+        "sample_sd": 0.03530660707453467
+      }
+    }
+  ],
+  "max_absolute_cash_error": 4.8203219193965197e-11
+}
