@@ -10,3 +10,4 @@ dist/
 # Regenerate raw inputs and short runs; retain costly long-run diagnostics.
 outputs/**/*.npz
 !outputs/opponent_sweep/trajectories.npz
+!outputs/extensions/trajectories.npz

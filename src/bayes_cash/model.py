@@ -8,6 +8,7 @@ import numpy as np
 
 
 PAYMENT_MODES = ("fixed", "fractional", "hybrid")
+INFLUENCE_RULES = ("attenuation", "tanh")
 
 
 @dataclass(frozen=True)
@@ -20,6 +21,9 @@ class Config:
     social_rate: float = 0.25
     reference_payment: float = 1.0
     opponent_fraction: float = 0.0
+    influence_rule: str = "attenuation"
+    opponent_threshold: float = 0.05
+    income_rate: float = 0.0
     wealth_min: float = 1.0
     wealth_max: float = 100.0
     fixed_payment: float = 1.0
@@ -43,6 +47,7 @@ class Config:
         for name in (
             "true_bias", "social_rate", "reference_payment", "wealth_min",
             "wealth_max", "fixed_payment", "wealth_fraction", "opponent_fraction",
+            "opponent_threshold", "income_rate",
         ):
             value = getattr(self, name)
             if isinstance(value, (bool, np.bool_)) or not isinstance(value, Real) or not np.isfinite(value):
@@ -55,6 +60,10 @@ class Config:
             raise ValueError("reference_payment must be positive")
         if not 0 <= self.opponent_fraction <= 1:
             raise ValueError("opponent_fraction must lie in [0, 1]")
+        if self.influence_rule not in INFLUENCE_RULES:
+            raise ValueError(f"influence_rule must be one of {INFLUENCE_RULES}")
+        if self.opponent_threshold < 0 or self.income_rate < 0:
+            raise ValueError("opponent_threshold and income_rate must be nonnegative")
         if not 0 < self.wealth_min < self.wealth_max:
             raise ValueError("wealth bounds must satisfy 0 < wealth_min < wealth_max")
         if self.fixed_payment < 0 or not 0 <= self.wealth_fraction <= 1:
@@ -194,6 +203,42 @@ def bayesian_update(beliefs: np.ndarray, theta: np.ndarray, observation: bool | 
     return posterior / evidence
 
 
+def contact_weights(
+    recipients: np.ndarray,
+    payments: np.ndarray,
+    relationships: np.ndarray,
+    reference_payment: float,
+    *,
+    influence_rule: str = "attenuation",
+    opening_wealth: np.ndarray | None = None,
+    opponent_threshold: float = 0.05,
+) -> np.ndarray:
+    """Map each directed payment to its signed influence on the recipient.
+
+    Tanh uses the recipient's opening wealth as both amplitude and money scale.
+    The underlying edge sign supplies a threshold, not a persistent converted
+    relationship. At zero recipient wealth the analytic prefactor limit is zero.
+    """
+    opponents = relationships[np.arange(recipients.size), recipients] < 0
+    if influence_rule == "attenuation":
+        weights = payments.astype(float, copy=True)
+        weights[opponents] = -reference_payment / (1.0 + payments[opponents] / reference_payment)
+        return weights
+    if influence_rule != "tanh":
+        raise ValueError(f"influence_rule must be one of {INFLUENCE_RULES}")
+    if opening_wealth is None:
+        raise ValueError("tanh influence requires opening_wealth")
+    recipient_wealth = opening_wealth[recipients]
+    solvent = recipient_wealth > 0
+    weights = np.zeros(recipients.size)
+    # Subtract cash amounts first to keep an exactly threshold-sized payment neutral.
+    neutral_payment = opponent_threshold * recipient_wealth[solvent] * opponents[solvent]
+    weights[solvent] = recipient_wealth[solvent] * np.tanh(
+        (payments[solvent] - neutral_payment) / recipient_wealth[solvent]
+    )
+    return weights
+
+
 def social_update(
     beliefs: np.ndarray,
     recipients: np.ndarray,
@@ -201,21 +246,27 @@ def social_update(
     self_weight: np.ndarray,
     relationships: np.ndarray,
     reference_payment: float,
+    *,
+    influence_rule: str = "attenuation",
+    opening_wealth: np.ndarray | None = None,
+    opponent_threshold: float = 0.05,
 ) -> np.ndarray:
-    """Attract toward paid allies; payments weaken scheduled opponents' repulsion.
+    """Apply signed pooling, projecting only recipients of negative influence.
 
-    Opponents carry weight ``-reference_payment / (1 + payment / reference_payment)``.
-    The signed difference update is truncated at zero and renormalized whenever
-    an opponent contributes. This source-model projection can erase support;
-    no probability floor is added to restore an excluded hypothesis.
+    This source-model positive-part projection can erase support; no probability
+    floor restores an excluded hypothesis. Effective tanh signs are recalculated
+    for every contact, so a baseline opponent can instead attract this round.
     """
-    opponents = relationships[np.arange(beliefs.shape[0]), recipients] < 0
-    weights = payments.astype(float, copy=True)
-    weights[opponents] = -reference_payment / (1.0 + payments[opponents] / reference_payment)
+    weights = contact_weights(
+        recipients, payments, relationships, reference_payment,
+        influence_rule=influence_rule, opening_wealth=opening_wealth,
+        opponent_threshold=opponent_threshold,
+    )
+    negative = weights < 0
     incoming = np.zeros(beliefs.shape[0])
     np.add.at(incoming, recipients, np.abs(weights))
     repulsion = np.zeros(beliefs.shape[0])
-    np.add.at(repulsion, recipients[opponents], -weights[opponents])
+    np.add.at(repulsion, recipients[negative], -weights[negative])
     paid_beliefs = np.zeros_like(beliefs, dtype=float)
     np.add.at(paid_beliefs, recipients, weights[:, None] * beliefs)
     updated = beliefs.astype(float, copy=True)
@@ -231,7 +282,7 @@ def social_update(
 
 
 def payment_amounts(config: Config, opening_wealth: np.ndarray, payment_mode: str) -> np.ndarray:
-    """Compute affordable payments from opening balances; skip unaffordable requests."""
+    """Skip requests beyond opening balances or, when enabled, current income."""
     if payment_mode not in PAYMENT_MODES:
         raise ValueError(f"payment_mode must be one of {PAYMENT_MODES}")
     if payment_mode == "fixed":
@@ -240,7 +291,10 @@ def payment_amounts(config: Config, opening_wealth: np.ndarray, payment_mode: st
         requested = config.wealth_fraction * opening_wealth
     else:
         requested = np.maximum(config.fixed_payment, config.wealth_fraction * opening_wealth)
-    return np.where(opening_wealth >= requested, requested, 0.0)
+    budget = opening_wealth
+    if config.income_rate > 0:
+        budget = np.minimum(budget, config.income_rate * opening_wealth)
+    return np.where(budget >= requested, requested, 0.0)
 
 
 def simulate(config: Config, inputs: PreparedInputs, payment_mode: str) -> Result:
@@ -251,6 +305,12 @@ def simulate(config: Config, inputs: PreparedInputs, payment_mode: str) -> Resul
         or inputs.observations.size != config.rounds
     ):
         raise ValueError("config dimensions must match prepared inputs")
+    if config.income_rate > 0 and (
+        np.log(inputs.initial_wealth.sum())
+        + config.rounds * np.log1p(config.income_rate)
+        >= np.log(np.finfo(float).max)
+    ):
+        raise ValueError("income growth exceeds finite nominal money; reduce rounds or income_rate")
     beliefs = np.empty((config.rounds + 1, config.n_agents, config.grid_size))
     wealth = np.empty((config.rounds + 1, config.n_agents))
     payments = np.empty((config.rounds, config.n_agents))
@@ -272,8 +332,15 @@ def simulate(config: Config, inputs: PreparedInputs, payment_mode: str) -> Resul
         beliefs[step + 1] = social_update(
             post_evidence, recipients, payments[step], self_weight,
             inputs.relationships, config.reference_payment,
+            influence_rule=config.influence_rule, opening_wealth=opening_wealth,
+            opponent_threshold=config.opponent_threshold,
         )
         incoming = np.zeros(config.n_agents)
         np.add.at(incoming, recipients, payments[step])
-        wealth[step + 1] = opening_wealth - payments[step] + incoming
+        if config.income_rate > 0:
+            wealth[step + 1] = (1.0 + config.income_rate) * opening_wealth - payments[step] + incoming
+        else:
+            wealth[step + 1] = opening_wealth - payments[step] + incoming
+        if not np.all(np.isfinite(wealth[step + 1])) or not np.all(np.isfinite(beliefs[step + 1])):
+            raise ValueError("simulation exceeded finite numerical arithmetic; reduce rounds or income_rate")
     return Result(beliefs, wealth, payments, payment_mode)

@@ -47,3 +47,23 @@ def test_export_contains_replayable_ledger_and_refuses_overwrite(tmp_path):
     with pytest.raises(FileExistsError, match="not empty"):
         run_experiment(config, output)
     assert (output / "summary.json").read_bytes() == saved_summary
+
+
+def test_income_exports_reconstruct_source_and_transfers(tmp_path):
+    config = Config(n_agents=4, attachment=1, rounds=3, grid_size=5,
+                    influence_rule="tanh", income_rate=0.1, opponent_fraction=0.5)
+    summary = run_experiment(config, tmp_path)
+    for distribution in ("uniform", "loguniform"):
+        with np.load(tmp_path / f"{distribution}_trajectories.npz", allow_pickle=False) as data:
+            for mode in ("fixed", "fractional", "hybrid", "no_payment"):
+                wealth, payments, income = (data[f"{mode}_{key}"] for key in ("wealth", "payments", "income"))
+                np.testing.assert_allclose(income, config.income_rate * wealth[:-1])
+                assert np.all(payments <= income)
+                for t in range(config.rounds):
+                    incoming = np.bincount(data["recipients"][t], weights=payments[t], minlength=config.n_agents)
+                    np.testing.assert_allclose(wealth[t + 1], wealth[t] + income[t] - payments[t] + incoming)
+                item = summary["results"][distribution]["scenarios"][mode]
+                assert "max_absolute_cash_conservation_error" not in item
+                assert item["max_relative_cash_balance_error"] < 1e-13
+                np.testing.assert_allclose(item["cumulative_nominal_income"], income.sum())
+    assert summary["conventions"]["influence_rule"] == "tanh"

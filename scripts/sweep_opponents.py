@@ -166,13 +166,24 @@ def _group_rows(rows, keys, metrics):
     groups = {}
     for row in rows:
         groups.setdefault(tuple(row[key] for key in keys), []).append(row)
-    return [
-        {**dict(zip(keys, group)), **{
-            metric: {"mean": float(np.mean([row[metric] for row in subset])),
-                     "sample_sd": float(np.std([row[metric] for row in subset], ddof=1))}
-            for metric in metrics}}
-        for group, subset in groups.items()
-    ]
+    summaries = []
+    for group, subset in groups.items():
+        summary = dict(zip(keys, group))
+        for metric in metrics:
+            values = np.asarray([row[metric] for row in subset], dtype=float)
+            scale = np.max(np.abs(values))
+            if scale == 0:
+                summary[metric] = {"mean": 0.0, "sample_sd": 0.0}
+            else:
+                # Income can make finite nominal cash exceed sqrt(float_max).
+                # Scale before summing or squaring, preserving the original units.
+                scaled = values / scale
+                summary[metric] = {
+                    "mean": float(scale * np.mean(scaled)),
+                    "sample_sd": float(scale * np.std(scaled, ddof=1)),
+                }
+        summaries.append(summary)
+    return summaries
 
 
 def run_sweep(config, seed_count, output, probabilities=None, horizons=(500, 5000, 20000),

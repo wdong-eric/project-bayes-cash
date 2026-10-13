@@ -8,6 +8,7 @@ from bayes_cash.model import (
     Config,
     PreparedInputs,
     bayesian_update,
+    contact_weights,
     make_inputs,
     payment_amounts,
     simulate,
@@ -391,3 +392,172 @@ def test_unknown_payment_mode_is_rejected(directed_round):
     config, inputs = directed_round
     with pytest.raises(ValueError, match="payment_mode"):
         simulate(config, inputs, "unknown")
+
+
+@pytest.mark.parametrize("payment", [0.0, 0.5, 1.0, 1e6])
+def test_tanh_opponents_cross_at_recipient_wealth_threshold_and_saturate(payment):
+    recipients = np.array([1, 0])
+    relationships = np.array([[0, -1], [-1, 0]])
+    opening_wealth = np.array([100.0, 10.0])
+    weights = contact_weights(
+        recipients, np.full(2, payment), relationships, 999.0,
+        influence_rule="tanh", opening_wealth=opening_wealth,
+    )
+    assert_allclose(weights, opening_wealth[::-1] * np.tanh(payment / opening_wealth[::-1] - 0.05))
+    if payment == 0.5:
+        assert weights[0] == 0.0
+        assert weights[1] < 0.0  # The payer's wealth is not the persuasion scale.
+    elif payment == 1.0:
+        assert weights[0] > 0.0
+        assert weights[1] < 0.0
+    elif payment == 1e6:
+        assert_array_equal(weights, opening_wealth[::-1])
+    else:
+        assert np.all(weights < 0.0)
+
+
+def test_tanh_zero_wealth_limit_and_unpaid_allies_have_zero_influence():
+    weights = contact_weights(
+        np.array([1, 0, 1]), np.array([10.0, 0.0, 0.0]),
+        np.array([[0, -1, 0], [-1, 0, 1], [0, 1, 0]]), 1.0,
+        influence_rule="tanh", opening_wealth=np.array([0.0, 0.0, 10.0]),
+    )
+    assert_array_equal(weights, np.zeros(3))
+    assert_array_equal(
+        contact_weights(
+            np.array([1, 0]), np.zeros(2), np.array([[0, 1], [1, 0]]), 1.0,
+            influence_rule="tanh", opening_wealth=np.array([10.0, 100.0]),
+        ), np.zeros(2),
+    )
+
+
+def test_tanh_neutral_payment_stays_exact_at_large_nominal_wealth():
+    wealth = np.full(2, 7.673203470112387e200)
+    neutral_payment = 0.05 * wealth
+    recipients = np.array([1, 0])
+    relationships = np.array([[0, -1], [-1, 0]])
+    for direction in (-np.inf, None, np.inf):
+        payments = neutral_payment if direction is None else np.nextafter(neutral_payment, direction)
+        weights = contact_weights(
+            recipients, payments, relationships, 1.0,
+            influence_rule="tanh", opening_wealth=wealth,
+        )
+        if direction is None:
+            assert_array_equal(weights, np.zeros(2))
+        else:
+            assert_array_equal(np.sign(weights), np.full(2, np.sign(direction)))
+
+
+def test_tanh_effective_sign_recomputed_without_changing_underlying_relationship():
+    beliefs = np.array([[0.4, 0.6], [0.6, 0.4]])
+    recipients = np.array([1, 0])
+    relationships = np.array([[0, -1], [-1, 0]])
+    self_weight = np.full(2, 3.0)
+    wealth = np.full(2, 10.0)
+    for payment in (0.0, 1.0, 0.0):
+        weight = 10.0 * np.tanh(payment / 10.0 - 0.05)
+        actual = social_update(
+            beliefs, recipients, np.full(2, payment), self_weight, relationships, 1.0,
+            influence_rule="tanh", opening_wealth=wealth,
+        )
+        expected = beliefs + weight * (beliefs[::-1] - beliefs) / (3.0 + abs(weight))
+        assert_allclose(actual, expected)
+        assert np.sign(actual[0, 0] - beliefs[0, 0]) == np.sign(weight)
+    assert_array_equal(relationships, [[0, -1], [-1, 0]])
+
+
+def test_tanh_uses_opening_recipient_wealth_and_preserves_constant_self_weight(directed_round):
+    config, inputs = directed_round
+    config = replace(config, influence_rule="tanh", income_rate=0.1)
+    inputs = replace(inputs, initial_wealth=np.array([10.0, 2.0, 1.0]))
+    result = simulate(config, inputs, "fixed")
+    # Only agent 0 pays: its recipient starts with W=2 and has degree-two K=6.
+    weight = 2.0 * np.tanh(1.0 / 2.0)
+    assert_allclose(result.beliefs[1, 1], np.array([weight, 6.0, 0.0]) / (6.0 + weight))
+    assert_allclose(result.wealth[1], [10.0, 3.2, 1.1])
+
+
+@pytest.mark.parametrize("mode", ["fixed", "hybrid"])
+def test_income_budget_preserves_minimum_payment_by_skipping_requests(mode):
+    config = Config(income_rate=0.1, wealth_fraction=0.05, fixed_payment=1.0)
+    wealth = np.array([0.0, 5.0, 9.0, 10.0, 20.0, 40.0])
+    expected = [0.0, 0.0, 0.0, 1.0, 1.0, 2.0 if mode == "hybrid" else 1.0]
+    assert_array_equal(payment_amounts(config, wealth, mode), expected)
+    assert_array_equal(
+        payment_amounts(replace(config, wealth_fraction=0.11), wealth, "hybrid"), np.zeros(6),
+    )
+
+
+@pytest.mark.parametrize("fraction", [0.05, 0.1, 0.11])
+def test_fractional_income_budget_allows_equality_and_skips_excess(fraction):
+    wealth = np.array([0.0, 1.0, 5.0, 10.0, 100.0])
+    actual = payment_amounts(Config(income_rate=0.1, wealth_fraction=fraction), wealth, "fractional")
+    assert_array_equal(actual, fraction * wealth if fraction <= 0.1 else np.zeros(5))
+
+
+def test_incoming_cash_does_not_finance_current_income_budget(directed_round):
+    config, inputs = directed_round
+    config = replace(config, income_rate=0.1, rounds=2)
+    inputs = replace(
+        inputs, initial_wealth=np.array([20.0, 9.0, 1.0]),
+        observations=np.ones(2, dtype=int), recipients=np.array([[1, 0, 1], [1, 0, 1]]),
+    )
+    result = simulate(config, inputs, "fixed")
+    assert_array_equal(result.payments, [[1.0, 0.0, 0.0], [1.0, 1.0, 0.0]])
+    assert_allclose(result.wealth[1], [21.0, 10.9, 1.1])
+
+
+@pytest.mark.parametrize("mode", ["fixed", "fractional", "hybrid"])
+@pytest.mark.parametrize("rule", ["attenuation", "tanh"])
+def test_income_total_growth_budget_and_probability_contracts(mode, rule):
+    config = Config(
+        n_agents=12, rounds=30, attachment=2, opponent_fraction=0.5,
+        influence_rule=rule, income_rate=0.1,
+    )
+    inputs = make_inputs(config, "loguniform")
+    result = simulate(config, inputs, mode)
+    assert_allclose(
+        result.wealth.sum(axis=1), inputs.initial_wealth.sum() * 1.1 ** np.arange(31), rtol=1e-13,
+    )
+    assert np.all(result.payments <= config.income_rate * result.wealth[:-1])
+    assert np.all(result.wealth >= 0.0)
+    assert np.all(result.beliefs >= 0.0)
+    assert_allclose(result.beliefs.sum(axis=2), 1.0, atol=1e-13)
+
+
+@pytest.mark.parametrize("mode", ["fixed", "fractional", "hybrid"])
+def test_zero_income_defaults_preserve_old_settlement_bitwise(mode):
+    config = Config(n_agents=12, rounds=30, attachment=2, opponent_fraction=0.5)
+    inputs = make_inputs(config, "loguniform")
+    result = simulate(config, inputs, mode)
+    expected = inputs.initial_wealth.copy()
+    for step, recipients in enumerate(inputs.recipients):
+        paid = payment_amounts(config, expected, mode)
+        incoming = np.zeros(config.n_agents)
+        np.add.at(incoming, recipients, paid)
+        expected = expected - paid + incoming
+        assert_array_equal(result.wealth[step + 1], expected)
+
+
+def test_income_horizon_overflow_is_rejected_before_simulation():
+    config = Config(n_agents=3, rounds=8000, attachment=1, income_rate=0.1)
+    inputs = make_inputs(config, "loguniform")
+    with pytest.raises(ValueError, match="income growth exceeds finite nominal money"):
+        simulate(config, inputs, "fractional")
+
+
+@pytest.mark.parametrize(
+    "invalid", [
+        {"influence_rule": "unknown"}, {"opponent_threshold": -0.1},
+        {"opponent_threshold": np.inf}, {"income_rate": -0.1},
+        {"income_rate": np.nan}, {"income_rate": True},
+    ],
+)
+def test_invalid_tanh_and_income_conventions_are_rejected(invalid):
+    with pytest.raises(ValueError):
+        Config(**invalid)
+
+
+def test_tanh_requires_opening_wealth():
+    with pytest.raises(ValueError, match="opening_wealth"):
+        contact_weights(np.array([1, 0]), np.ones(2), np.array([[0, 1], [1, 0]]), 1.0, influence_rule="tanh")

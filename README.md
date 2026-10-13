@@ -2,7 +2,8 @@
 
 A runnable experiment following the discrete belief dynamics in
 [YutongB/Opinion-Dynamics](https://github.com/YutongB/Opinion-Dynamics), with
-payment-weighted social influence and conserved cash. Agents observe shared
+payment-weighted social influence and cash transfers. Optional income adds an
+explicit source of new money. Agents observe shared
 coin-toss evidence and contact one randomly chosen neighbour per round. Payments
 are a fixed amount, a fraction of the payer's current wealth, or the maximum of
 the two (the hybrid rule). The recipient gains the money. Allied payments buy
@@ -59,8 +60,9 @@ grid theta_k in [0,1]. Defaults are 100 agents, a connected Barabasi-Albert netw
 with attachment parameter 3, 500 rounds, 21 grid points, true coin bias 0.6, and
 social rate mu = 0.25. All agents are persuadable; there are no partisans. The
 default opponent fraction is zero. For a positive fraction, each existing edge
-is independently designated ally or opponent by a separate random stream. Signs
-are symmetric and fixed through time. Adding signs changes none of the random
+is independently designated ally or opponent by a separate random stream. These
+baseline labels are symmetric and fixed through time; the optional tanh rule
+lets effective directed contact signs change. Adding labels changes none of the random
 graph, prior, wealth, coin, or recipient draws.
 NetworkX builds the graph; NumPy implements the equations, without requiring the
 upstream package's compiled graph-tool dependency.
@@ -251,6 +253,106 @@ does not change affordability or whom an agent contacts. For each payment rule,
 wealth and payment histories must be identical between all-allied and mixed
 networks. This is still an exogenous spending model, not utility-maximizing
 choice of whether to pay an opponent.
+
+### 6. Optional wealth-scaled tanh transition
+
+```bash
+python -m bayes_cash --influence-rule tanh --opponent-threshold 0.05 \
+  --opponent-fraction 0.2 --output outputs/tanh_demo
+```
+
+The confirmed alternative assigns a directed contact from payer j to recipient i
+the weight
+
+```math
+w_{ji}(t)=W_i(t)\tanh\!\left[\frac{m_j(t)}{W_i(t)}
+                  -\kappa\,\mathbf{1}_{s_{ji}<0}\right],
+\qquad \kappa=0.05.
+```
+
+Both the leading amplitude and the money scale inside tanh are the recipient's
+**opening wealth**, before current income or transfers. For a baseline opponent,
+payments below 5% of that wealth repel, equality is neutral, and larger payments
+attract. The sign is recalculated each contact and can switch back later. This
+does not store a cumulative relationship or change the underlying edge label.
+Baseline allies remain nonnegative; an unpaid allied contact has zero weight.
+When recipient wealth is exactly zero, the prefactor limit sets the weight to
+zero without an epsilon. Receiving cash can then affect subsequent rounds.
+
+With f=kappa=0.05, a fractional payment makes a baseline opponent attractive
+exactly when the payer is wealthier than the recipient: its tanh argument is
+`0.05*(W_j/W_i-1)`. For a fixed payment c=1, attraction instead requires
+recipient wealth below `c/kappa=20`, provided the payer makes the payment.
+The implementation evaluates the equivalent argument `(m-kappa*W_i)/W_i`
+for opponents, preserving exact neutrality when payment equals the threshold
+even at very large wealth. No numerical tolerance changes the sign boundary.
+
+The existing signed social equation is used with these effective weights.
+Repulsion and positive-part projection are determined by the **effective
+negative weights**, including when a formerly opposing contact has become
+attractive. The old constant self-weight remains
+`degree * reference_payment * (1-social_rate)/social_rate`; `reference_payment`
+continues to set this fixed money scale but does not set the tanh denominator.
+For small relative allied payments, `W_i*tanh(m/W_i)` approaches m, recovering
+the old allied contact weight to first order.
+
+Keeping self-weight fixed confines the intervention to the contact law, but has an important
+consequence when income is enabled: proportionally growing wealth and payments
+increase tanh weights relative to self-belief. The new model is not invariant
+under rescaling all nominal wealth while holding self-weight fixed. A model
+with wealth-scaled self-weight would be a different convention and is not used
+in this comparison. The old no-allied-neighbour singleton certificate must not
+be applied to tanh runs: baseline opponents can supply attractive input later.
+
+### 7. Optional proportional income and an income budget
+
+```bash
+python -m bayes_cash --income-rate 0.1 --opponent-fraction 0.2 \
+  --output outputs/income_demo
+python -m bayes_cash --income-rate 0.1 --influence-rule tanh \
+  --opponent-fraction 0.2 --output outputs/tanh_income_demo
+```
+
+With positive income rate r, agents earn `I_i(t)=r*W_i(t)` from opening wealth.
+The existing fixed, fractional, or hybrid rule first makes a payment request
+g_i. It is paid only if affordable from opening cash **and** no larger than the
+current income budget; otherwise the whole request is skipped. Requests are
+never reduced to fit the budget, preserving the fixed/hybrid minimum.
+
+```math
+m_i=g_i\,\mathbf{1}_{g_i\leq W_i}\,\mathbf{1}_{g_i\leq rW_i},
+\qquad
+W_i(t+1)=(1+r)W_i(t)-m_i(t)+\sum_{j:r_j=i}m_j(t).
+```
+
+Income and transfers settle simultaneously. Receipts from other agents cannot
+finance the current request. At r=0.1, f=0.05, c=1, fractional payments always
+fit the income budget; fixed and hybrid payments require opening wealth at
+least 10. Every agent retains at least its opening wealth after income and its
+own spending, even before incoming transfers. This is an imposed budget that
+protects principal, not a derivation of rational or utility-maximizing behaviour.
+Setting `income_rate=0` disables this additional constraint and reproduces the
+original no-income model, which permits spending existing wealth.
+
+Transfers conserve money, while income is an external source:
+
+```math
+S(t+1)=(1+r)S(t),\qquad S(t)=S(0)(1+r)^t.
+```
+
+Exports retain **nominal** wealth, payments, and income. Cash validation compares
+`S(t)/(1+r)^t` with the initial total rather than incorrectly demanding constant
+nominal cash. The 10% is per simulation round, not an empirically calibrated
+annual income. It produces enormous nominal growth over thousands of rounds.
+The current simulator explicitly rejects horizons that exceed finite nominal
+floating-point money; 20,000 rounds at r=0.1 are unsupported. A longer income
+study needs a wealth-share/log-total representation that also retains the
+fixed payment as a fixed nominal amount.
+
+The tanh law also changes repulsion strength even without income: at zero
+payment the old weight is -1, while the new weight is
+`-W_i*tanh(0.05)`, approximately `-0.05*W_i`. Thus the comparison below tests the
+complete proposed law, not the isolated causal effect of permitting sign flips.
 
 ## Saved data and diagnostics
 
@@ -637,11 +739,112 @@ checkpoints, while `inputs.npz` stores the full replayable random inputs.
 The 21-point grid and support-erasing projection remain scientific assumptions;
 no grid-refinement or alternative-projection study is included here.
 
+## Separate tanh and income comparison
+
+```bash
+OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 VECLIB_MAXIMUM_THREADS=1 \
+  python scripts/compare_extensions.py --seeds 20 --rounds 5000 \
+  --horizons 500 5000 --fractions 0.2 1 --workers 6 \
+  --output outputs/extensions
+python scripts/plot_extensions.py outputs/extensions
+```
+
+Four paired arms separate the additions: baseline attenuation without income,
+tanh only, income with the original attenuation law, and both additions.
+The 960 trajectories use 20 seeds, both initial wealth distributions, all three
+payment rules, and opponent probabilities 0.2 and 1. These two probabilities
+probe mixed and entirely opposing networks; this extension is not a repeat of
+the full 0--1 sweep. Parameters remain N=100, c=1, f=0.05, kappa=0.05, and
+income rate 0.1 when enabled. Each arm shares the same graph, beliefs, wealth
+quantiles, evidence, and contacts. Checkpoints at 500 and 5,000 are from the
+same trajectory; all 480 baseline checkpoint rows exactly reproduce the prior
+sweep for the five shared belief/wealth metrics.
+
+Mean posterior belief MSE at round 5,000 (smaller is more accurate):
+
+| Wealth | Opponents | Payment | Baseline | Tanh only | Income only | Both |
+| --- | ---: | --- | ---: | ---: | ---: | ---: |
+| Loguniform | 20% | Fixed | .001241 | .001379 | .000479 | .002742 |
+| Loguniform | 20% | Fractional | .000260 | .001377 | 4.44e-10 | .001335 |
+| Loguniform | 20% | Hybrid | .0000716 | .001593 | 4.44e-10 | .001345 |
+| Uniform | 20% | Fixed | .001248 | .001860 | .000470 | .002626 |
+| Uniform | 20% | Fractional | .00000750 | .002180 | 4.46e-10 | .001359 |
+| Uniform | 20% | Hybrid | .00000750 | .001843 | 4.46e-10 | .001362 |
+| Loguniform | 100% | Fixed | .003189 | .001527 | .002921 | .006849 |
+| Loguniform | 100% | Fractional | .002906 | .009456 | .0000838 | .025449 |
+| Loguniform | 100% | Hybrid | .002715 | .010115 | .0000913 | .025274 |
+| Uniform | 100% | Fixed | .003011 | .002216 | .002934 | .008283 |
+| Uniform | 100% | Fractional | .002226 | .015536 | .0000150 | .026494 |
+| Uniform | 100% | Hybrid | .002218 | .015354 | .0000150 | .025733 |
+
+Income alone greatly improves fractional/hybrid accuracy under the original
+attenuation law. At 20% opponents, disagreement falls to 2.28--2.91e-11 across
+these four wealth/payment combinations. Growing payments suppress the original
+opponent weight toward zero, while increasing allied pooling. At 100% opponents,
+income-only fractional/hybrid errors are also much smaller, but previous support
+loss can still prevent full recovery by evidence alone.
+
+The tanh law does not share that implication: a payment below the recipient's
+relative threshold remains repulsive, and its magnitude grows with recipient
+wealth. Tanh alone improves fixed payments in entirely opposing networks but
+worsens fractional/hybrid accuracy. With both additions, the latter MSE reaches
+0.0253--0.0265 at 100% opponents despite disagreement of only 0.0315--0.0475.
+The per-seed MSE decomposition attributes 75--86% of that error to squared
+population-mean bias. Oppositely biased seeds can cancel in an ensemble mean,
+so a mean opinion near the truth would not establish accurate agreement.
+
+For both additions, fractional/hybrid disagreement still decreases by about
+10--13% between the exact late windows 2,501--3,750 and 3,751--5,000, while MSE
+remains about 0.025--0.028 in entirely opposing networks. These are finite-time
+results, not stationary or certified frozen states. Constant self-weight makes
+income amplify tanh social strength relative to self-belief; changing that
+convention requires a separate experiment.
+
+Cash histories are identical across influence laws and opponent probabilities
+at each income setting. In wealth shares x_i=W_i/S, unrestricted fractional
+payments with income obey
+
+```math
+x_i'=x_i+\frac{f}{1+r}\left(\sum_{j:r_j=i}x_j-x_i\right).
+```
+
+Thus proportional income alone preserves relative inequality, while these
+transfers act like the original share dynamics at fraction f/(1+r). Fixed
+payments become negligible relative to the exponentially growing total S,
+leaving Gini near its initial value instead of concentrating wealth to the
+no-income value near 0.96. With income, the final fixed Gini is 0.568 for
+loguniform and 0.328 for uniform wealth; fractional and hybrid are both 0.369.
+The hybrid becomes fractional once every opening balance exceeds c/f=20.
+
+The saved figures answer the comparison questions directly:
+
+- [Beliefs at round 500](outputs/extensions/belief_comparison_500.png) and
+  [round 5,000](outputs/extensions/belief_comparison_5000.png): disagreement and
+  posterior MSE for all four arms, using common scales and seed sample SDs.
+- [Income and cash](outputs/extensions/income_cash.png): inequality and payment
+  participation over time, with and without income.
+- [Effective contact signs](outputs/extensions/contact_signs.png): the fraction
+  of scheduled baseline-opponent contacts that actually attract. Fractional
+  payments flip about 30--32% at round 5,000; fixed payments with income flip
+  none because recipients have grown beyond the c/kappa=20 threshold.
+
+Each figure also has a PDF. `per_seed.csv` and `late_windows.csv` preserve
+individual outcomes; `summary.json` records parameters, replay conventions,
+cash hashes, means, and sample SDs. The compact `trajectories.npz` saves
+diagnostics every 50 rounds. All 960 runs succeeded; maximum relative error
+in the income-adjusted cash identity is 4.14e-13. The full implementation
+suite has 129 passing tests, including threshold signs, income budgets,
+simultaneous accounting, unchanged baseline trajectories, and large-value
+summary statistics. These checks establish numerical contracts, not model
+validity or convergence.
+
 ## Saved artifacts and version control
 
 Git retains the code, tests, small figures and CSV/JSON results, and
-`outputs/opponent_sweep/trajectories.npz`. This last archive contains diagnostics
-from 1,320 trajectories of 20,000 rounds and is costly to reproduce.
+`outputs/opponent_sweep/trajectories.npz`. This archive contains diagnostics
+from 1,320 trajectories of 20,000 rounds and is costly to reproduce. The same
+retention policy includes `outputs/extensions/trajectories.npz` (about 3 MB),
+whose diagnostics require 960 trajectories of 5,000 rounds to regenerate.
 
 Other NPZ archives are ignored: the single-seed demos, the shorter paired
 comparison, the cash-only network controls, and the sweep's raw `inputs.npz`.
@@ -657,7 +860,8 @@ remain in historical commits, but are no longer tracked in the current tree.
 - This first version has **wealth-to-opinion coupling**. Spending and recipient
   choice do not depend on beliefs, so changing beliefs cannot change wealth.
   The cash-transfer dynamics are autonomous, even though cash received finances
-  later persuasion. There are no wages, production, goods, or utility optimisation.
+  later persuasion. Optional income is exogenous and proportional to wealth;
+  there are no wages from labour, production, goods, or utility optimisation.
 - Common public evidence may overwhelm transient paid influence. Compare the
   no-payment control and early-time trajectories before interpreting consensus.
 - The three payment rules do not have equal realized spending. For the

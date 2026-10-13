@@ -63,16 +63,21 @@ def run_experiment(config, output):
         "upstream_commit": SOURCE_COMMIT,
         "versions": {name: version(name) for name in ("bayes-cash", "numpy", "networkx", "matplotlib")},
         "conventions": {
-            "network": "undirected Barabasi-Albert; fixed symmetric ally/opponent relationships",
+            "network": "undirected Barabasi-Albert; fixed symmetric baseline ally/opponent labels; tanh effective signs can change each contact",
             "beliefs": "probability masses on an equally spaced theta grid, including endpoints",
-            "cash": "arbitrary units; no normalization of initial total wealth",
-            "payments": "one uniformly sampled neighbor per payer; opening wealth; simultaneous settlement",
+            "cash": "nominal arbitrary units; income_rate * opening wealth injected per round; no normalization of wealth",
+            "payments": "one uniformly sampled neighbor per payer; opening wealth; simultaneous income and transfer settlement; when income_rate > 0, skip requests above income",
             "fixed_insufficient_funds": "skip the payment, with no partial payment",
             "hybrid": "pay max(fixed_payment, wealth_fraction * opening_wealth) if affordable; otherwise skip",
             "self_weight": "degree * reference_payment * (1 - social_rate) / social_rate",
-            "opponent_weight": "-reference_payment / (1 + payment / reference_payment); unpaid scheduled contacts still repel",
-            "signed_normalization": "positive part followed by probability-mass normalization for recipients of opponent contacts",
-            "no_payment": "fixed_payment=0; evidence-only if all allies, evidence plus undamped repulsion if opponents are present",
+            "influence_rule": config.influence_rule,
+            "opponent_weight": (
+                "recipient opening W * tanh(payment/W - opponent_threshold); ally threshold zero; zero W gives zero weight; relationship sign can change each contact"
+                if config.influence_rule == "tanh" else
+                "-reference_payment / (1 + payment / reference_payment); unpaid scheduled contacts still repel"
+            ),
+            "signed_normalization": "positive part followed by probability-mass normalization for recipients of negative effective contact weights",
+            "no_payment": "fixed_payment=0; no attraction if all allies, zero-payment repulsion if opponents are present; configured income still injected",
         },
         "results": {},
     }
@@ -84,6 +89,8 @@ def run_experiment(config, output):
         }
         results["no_payment"] = simulate(replace(config, fixed_payment=0.0), inputs, "fixed")
         metrics = {mode: diagnostics(result, inputs.theta, config.true_bias) for mode, result in results.items()}
+        for data in metrics.values():
+            data["total_income"] = np.r_[0.0, config.income_rate * data["wealth_total"][:-1]]
         payload = {
             "theta": inputs.theta,
             "adjacency": inputs.adjacency,
@@ -97,6 +104,8 @@ def run_experiment(config, output):
         }
         for mode, result in results.items():
             payload.update({f"{mode}_beliefs": result.beliefs, f"{mode}_wealth": result.wealth, f"{mode}_payments": result.payments})
+            if config.income_rate:
+                payload[f"{mode}_income"] = config.income_rate * result.wealth[:-1]
         np.savez_compressed(output / f"{distribution}_trajectories.npz", **payload)
         fields = ["scenario", *metrics["fixed"]]
         with (output / f"{distribution}_metrics.csv").open("w", newline="") as stream:
@@ -131,6 +140,7 @@ def run_experiment(config, output):
             f"{distribution.capitalize()} initial wealth | N={config.n_agents}, seed={config.seed}\n"
             f"c={config.fixed_payment:g}; f={config.wealth_fraction:g}; opponents={realized_opponents:.1%}; "
             f"{'shared coin evidence' if config.public_evidence else 'no external evidence'}"
+            + (f" | {config.influence_rule}; income={config.income_rate:.0%}" if config.influence_rule != "attenuation" or config.income_rate else "")
         )
         figure.savefig(output / f"{distribution}_comparison.png", dpi=160)
         figure.savefig(output / f"{distribution}_comparison.pdf")
@@ -145,6 +155,7 @@ def run_experiment(config, output):
         }
         for mode, result in results.items():
             total = result.wealth.sum(axis=1)
+            discounted_total = total * np.exp(-np.arange(total.size) * np.log1p(config.income_rate))
             metadata["results"][distribution]["scenarios"][mode] = {
                 "final_mean_opinion": float(metrics[mode]["mean_opinion"][-1]),
                 "final_opinion_disagreement": float(metrics[mode]["opinion_disagreement"][-1]),
@@ -153,10 +164,13 @@ def run_experiment(config, output):
                 "final_gini": float(metrics[mode]["wealth_gini"][-1]),
                 "cumulative_cash_transferred": float(result.payments.sum()),
                 "fraction_of_contact_attempts_paid": float((result.payments > 0).mean()),
-                "max_absolute_cash_conservation_error": float(np.max(np.abs(total - total[0]))),
+                "max_relative_cash_balance_error": float(np.max(np.abs(discounted_total / total[0] - 1.0))),
+                "cumulative_nominal_income": float(config.income_rate * total[:-1].sum()),
                 "max_belief_normalization_error": float(np.max(np.abs(result.beliefs.sum(axis=2) - 1))),
                 "minimum_wealth": float(result.wealth.min()),
             }
+            if config.income_rate == 0:
+                metadata["results"][distribution]["scenarios"][mode]["max_absolute_cash_conservation_error"] = float(np.max(np.abs(total - total[0])))
         for column, mode in enumerate(PAYMENT_MODES):
             axis = wealth_axes[row, column]
             end = results[mode].wealth[-1]
@@ -167,7 +181,7 @@ def run_experiment(config, output):
                      title=f"{distribution.capitalize()} | {LABELS[mode]}")
             axis.grid(alpha=0.2)
             wealth_figure.colorbar(scatter, ax=axis, label="Network degree")
-    wealth_figure.suptitle("Wealth redistribution | dashed line: unchanged wealth")
+    wealth_figure.suptitle("Nominal wealth after income and transfers | dashed line: unchanged wealth" if config.income_rate else "Wealth redistribution | dashed line: unchanged wealth")
     wealth_figure.savefig(output / "wealth_redistribution.png", dpi=160)
     wealth_figure.savefig(output / "wealth_redistribution.pdf")
     plt.close(wealth_figure)
@@ -181,8 +195,9 @@ def main():
     for name, kind in (("n_agents", int), ("rounds", int), ("attachment", int), ("grid_size", int),
                        ("seed", int), ("true_bias", float), ("social_rate", float), ("reference_payment", float),
                        ("wealth_min", float), ("wealth_max", float), ("fixed_payment", float), ("wealth_fraction", float),
-                       ("opponent_fraction", float)):
+                       ("opponent_fraction", float), ("opponent_threshold", float), ("income_rate", float)):
         parser.add_argument("--" + name.replace("_", "-"), type=kind, default=getattr(Config(), name))
+    parser.add_argument("--influence-rule", choices=("attenuation", "tanh"), default=Config().influence_rule)
     parser.add_argument("--no-public-evidence", action="store_true", help="A separate social-only diagnostic; default keeps shared coin learning.")
     args = vars(parser.parse_args())
     output = args.pop("output")
@@ -195,7 +210,7 @@ def main():
             item = data["scenarios"][mode]
             print(f"{distribution:10} {mode:10} mean opinion={item['final_mean_opinion']:.5f} "
                   f"Gini={item['final_gini']:.4f} "
-                  f"cash error={item['max_absolute_cash_conservation_error']:.2e}")
+                  f"relative cash balance error={item['max_relative_cash_balance_error']:.2e}")
 
 
 if __name__ == "__main__":
