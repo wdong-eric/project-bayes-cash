@@ -17,6 +17,72 @@ nor a general equilibrium economy.
 
 ## Run
 
+### Interactive belief explorer
+
+Start the local browser app with the same environment as the experiments:
+
+```bash
+.venv/bin/python -m bayes_cash.explorer
+```
+
+With uv, the committed lockfile pins the dependency versions:
+
+```bash
+uv run --locked python -m bayes_cash.explorer
+uv run --locked python -m bayes_cash.explorer --help
+```
+
+Use `--port 8766` if the default port is already occupied, or `--port 0` to
+choose an available port. Stop the local server with Ctrl-C.
+
+Open `http://127.0.0.1:8765/`. The app calls the existing Python simulator and
+needs no JavaScript dependencies or external services. Choose any subset of the
+BA, connected random-regular (degree `2m`), and complete networks, then run the
+experiment. Each run includes fixed, fractional, hybrid, and no-payment arms.
+Controls expose public evidence, opponent probability, attenuation/tanh influence,
+proportional income and its spending budget, wealth distribution, and model scales.
+
+Play, pause, step, or scrub the shared timeline. Select a network node or an agent
+card to inspect its **discrete belief PMF**, compare payment rules, and follow its
+history heatmap. Network glyphs and all-agent mini-plots show probability masses
+on a fixed 0–1 vertical scale. The topology comparison holds the agent and payment
+rule fixed. Solid/dashed edges show baseline ally/opponent labels, including under
+tanh where effective directed contact signs can change.
+
+**Save replay HTML** downloads the current experiment as a self-contained offline
+replay. Playback, node selection, and comparisons remain interactive; new model
+settings require the local Python app. Alternatively, generate a replay from the
+command line (existing files are never overwritten):
+
+```bash
+.venv/bin/python -m bayes_cash.explorer --export outputs/belief-replay.html
+# Optional request JSON: {"config": {"rounds": 200}, "distribution": "uniform",
+#                         "topologies": ["barabasi_albert", "regular"]}
+.venv/bin/python -m bayes_cash.explorer --export outputs/custom-replay.html --config request.json
+```
+
+The repository includes `outputs/belief-observatory.html` as a ready-to-open
+offline demonstration and `outputs/belief-observatory-preview.jpg` as a design
+snapshot. The editable interface lives in `src/bayes_cash/web/explorer.html`.
+
+Viewer defaults use 24 agents, 160 rounds, and opponent probability 0.2 for a
+responsive preview. The batch model defaults remain unchanged. Limits are
+4–100 agents, 1–1000 rounds,
+5–51 grid points, and four million exported belief values. Up to 501 display
+states include the initial and final states; all model rounds are computed.
+The app shows sampled-frame status and steps through actual saved states without
+interpolating. Request fewer agents, grid points, rounds, or networks if the
+export-size limit is exceeded.
+
+Initial beliefs, wealth, and observations are identical across network families;
+contacts and edge signs are shared across payment rules within a network. BA
+matches `make_inputs` and `simulate` exactly at the requested horizon. The other
+networks are new full-belief exploratory runs, extending the earlier cash-only
+controls. Changing the horizon can change earlier contacts, so hold both seed and
+horizon fixed for comparisons. A single realization is not an ensemble result.
+
+### Batch experiments
+
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
