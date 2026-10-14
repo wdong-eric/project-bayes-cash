@@ -18,6 +18,7 @@ import numpy as np
 
 from bayes_cash.experiment import COLORS, LABELS
 from bayes_cash.model import PAYMENT_MODES, Config, make_inputs, payment_amounts
+from _legacy_scope import require_static_study
 
 
 TOPOLOGIES = ("barabasi_albert", "regular", "complete")
@@ -26,6 +27,7 @@ TOPOLOGY_LABELS = ("BA hubs", "Random regular", "Complete")
 
 def control_inputs(config, distribution):
     """Keep the original 500-round BA experiment and append new random draws."""
+    require_static_study(config)
     short_rounds = min(500, config.rounds)
     original = make_inputs(replace(config, rounds=short_rounds), distribution)
     degree = 2 * config.attachment
@@ -76,6 +78,7 @@ def control_inputs(config, distribution):
 
 def simulate_cash(config, inputs, mode):
     """Replay core synchronous transfers without allocating irrelevant beliefs."""
+    require_static_study(config)
     wealth = np.empty((config.rounds + 1, config.n_agents))
     payments = np.empty((config.rounds, config.n_agents))
     wealth[0] = inputs.initial_wealth
@@ -91,6 +94,7 @@ def simulate_cash(config, inputs, mode):
 
 def run_controls(config, seed_count, output):
     """Write per-seed outcomes, paired contrasts, reproducible inputs, and figures."""
+    require_static_study(config)
     import matplotlib
 
     matplotlib.use("Agg")

@@ -30,9 +30,14 @@ class Config:
     wealth_fraction: float = 0.05
     seed: int = 42
     public_evidence: bool = True
+    ally_giver_fraction: float = 0.0
+    opponent_giver_fraction: float = 0.0
+    preference_probability: float = 0.8
+    conditional_ally_fraction: float = 0.0
+    loyalty_rounds: int = 5
 
     def __post_init__(self):
-        for name in ("n_agents", "rounds", "attachment", "grid_size", "seed"):
+        for name in ("n_agents", "rounds", "attachment", "grid_size", "seed", "loyalty_rounds"):
             value = getattr(self, name)
             if isinstance(value, (bool, np.bool_)) or not isinstance(value, (int, np.integer)):
                 raise ValueError(f"{name} must be an integer")
@@ -42,12 +47,16 @@ class Config:
             raise ValueError("attachment must satisfy 1 <= attachment < n_agents")
         if self.seed < 0:
             raise ValueError("seed must be nonnegative")
+        if self.loyalty_rounds < 1:
+            raise ValueError("loyalty_rounds must be positive")
         if not isinstance(self.public_evidence, (bool, np.bool_)):
             raise ValueError("public_evidence must be boolean")
         for name in (
             "true_bias", "social_rate", "reference_payment", "wealth_min",
             "wealth_max", "fixed_payment", "wealth_fraction", "opponent_fraction",
             "opponent_threshold", "income_rate",
+            "ally_giver_fraction", "opponent_giver_fraction", "preference_probability",
+            "conditional_ally_fraction",
         ):
             value = getattr(self, name)
             if isinstance(value, (bool, np.bool_)) or not isinstance(value, Real) or not np.isfinite(value):
@@ -60,6 +69,14 @@ class Config:
             raise ValueError("reference_payment must be positive")
         if not 0 <= self.opponent_fraction <= 1:
             raise ValueError("opponent_fraction must lie in [0, 1]")
+        for name in (
+            "ally_giver_fraction", "opponent_giver_fraction", "preference_probability",
+            "conditional_ally_fraction",
+        ):
+            if not 0 <= getattr(self, name) <= 1:
+                raise ValueError(f"{name} must lie in [0, 1]")
+        if self.ally_giver_fraction + self.opponent_giver_fraction > 1:
+            raise ValueError("ally_giver_fraction and opponent_giver_fraction must sum to at most 1")
         if self.influence_rule not in INFLUENCE_RULES:
             raise ValueError(f"influence_rule must be one of {INFLUENCE_RULES}")
         if self.opponent_threshold < 0 or self.income_rate < 0:
@@ -82,6 +99,9 @@ class PreparedInputs:
     observations: np.ndarray
     recipients: np.ndarray
     wealth_distribution: str
+    giving_preferences: np.ndarray | None = None
+    conditional_allies: np.ndarray | None = None
+    contact_uniforms: np.ndarray | None = None
 
     def __post_init__(self):
         for name in (
@@ -140,6 +160,27 @@ class PreparedInputs:
             raise ValueError("recipient indices must lie within the network")
         if not np.all(self.adjacency[np.arange(n_agents), self.recipients]):
             raise ValueError("each recipient must be a neighbor of its payer")
+        if self.giving_preferences is not None and (
+            not isinstance(self.giving_preferences, np.ndarray)
+            or self.giving_preferences.shape != (n_agents,)
+            or self.giving_preferences.dtype.kind != "i"
+            or not np.all(np.isin(self.giving_preferences, [-1, 0, 1]))
+        ):
+            raise ValueError("giving_preferences must be a signed integer vector in {-1, 0, 1}")
+        if self.conditional_allies is not None and (
+            not isinstance(self.conditional_allies, np.ndarray)
+            or self.conditional_allies.shape != (n_agents,)
+            or self.conditional_allies.dtype.kind != "b"
+        ):
+            raise ValueError("conditional_allies must be a boolean vector of length n_agents")
+        if self.contact_uniforms is not None and (
+            not isinstance(self.contact_uniforms, np.ndarray)
+            or self.contact_uniforms.shape != self.recipients.shape
+            or self.contact_uniforms.dtype.kind not in "fiu"
+            or not np.all(np.isfinite(self.contact_uniforms))
+            or not np.all((0 <= self.contact_uniforms) & (self.contact_uniforms < 1))
+        ):
+            raise ValueError("contact_uniforms must have shape (rounds, n_agents) and values in [0, 1)")
 
 
 @dataclass(frozen=True)
@@ -148,15 +189,20 @@ class Result:
     wealth: np.ndarray
     payments: np.ndarray
     payment_mode: str
+    recipients: np.ndarray | None = None
+    relationships: np.ndarray | None = None
 
 
 def make_inputs(config: Config, wealth_distribution: str) -> PreparedInputs:
     """Presample all randomness, sharing its streams between experiment arms."""
     if wealth_distribution not in ("uniform", "loguniform"):
         raise ValueError("wealth_distribution must be 'uniform' or 'loguniform'")
-    graph_rng, prior_rng, wealth_rng, evidence_rng, contact_rng, relationship_rng = (
+    (
+        graph_rng, prior_rng, wealth_rng, evidence_rng, contact_rng, relationship_rng,
+        giver_rng, conditional_rng, preference_rng,
+    ) = (
         np.random.default_rng(stream)
-        for stream in np.random.SeedSequence(config.seed).spawn(6)
+        for stream in np.random.SeedSequence(config.seed).spawn(9)
     )
     graph = nx.barabasi_albert_graph(
         config.n_agents, config.attachment,
@@ -187,9 +233,22 @@ def make_inputs(config: Config, wealth_distribution: str) -> PreparedInputs:
         recipients[:, payer] = contact_rng.choice(
             np.flatnonzero(adjacency[payer]), size=config.rounds,
         )
+    giver_quantiles = giver_rng.random(config.n_agents)
+    giving_preferences = np.zeros(config.n_agents, dtype=np.int8)
+    giving_preferences[giver_quantiles < config.ally_giver_fraction] = 1
+    giving_preferences[
+        (giver_quantiles >= config.ally_giver_fraction)
+        & (giver_quantiles < config.ally_giver_fraction + config.opponent_giver_fraction)
+    ] = -1
+    conditional_allies = conditional_rng.random(config.n_agents) < config.conditional_ally_fraction
+    contact_uniforms = (
+        preference_rng.random((config.rounds, config.n_agents))
+        if config.ally_giver_fraction + config.opponent_giver_fraction > 0 else None
+    )
     return PreparedInputs(
         theta, adjacency, relationships, initial_beliefs, initial_wealth,
         observations, recipients, wealth_distribution,
+        giving_preferences, conditional_allies, contact_uniforms,
     )
 
 
@@ -216,19 +275,24 @@ def contact_weights(
     """Map each directed payment to its signed influence on the recipient.
 
     Tanh uses the recipient's opening wealth as both amplitude and money scale.
-    The underlying edge sign supplies a threshold, not a persistent converted
-    relationship. At zero recipient wealth the analytic prefactor limit is zero.
+    The current relationship supplies the opponent threshold; payment-dependent
+    loyalty is updated before this function. A recipient of -1 means no contact.
+    At zero recipient wealth the analytic prefactor limit is zero.
     """
-    opponents = relationships[np.arange(recipients.size), recipients] < 0
+    active = recipients >= 0
+    opponents = np.zeros(recipients.size, dtype=bool)
+    opponents[active] = relationships[np.flatnonzero(active), recipients[active]] < 0
     if influence_rule == "attenuation":
         weights = payments.astype(float, copy=True)
         weights[opponents] = -reference_payment / (1.0 + payments[opponents] / reference_payment)
+        weights[~active] = 0.0
         return weights
     if influence_rule != "tanh":
         raise ValueError(f"influence_rule must be one of {INFLUENCE_RULES}")
     if opening_wealth is None:
         raise ValueError("tanh influence requires opening_wealth")
-    recipient_wealth = opening_wealth[recipients]
+    recipient_wealth = np.zeros(recipients.size)
+    recipient_wealth[active] = opening_wealth[recipients[active]]
     solvent = recipient_wealth > 0
     weights = np.zeros(recipients.size)
     # Subtract cash amounts first to keep an exactly threshold-sized payment neutral.
@@ -263,12 +327,13 @@ def social_update(
         opponent_threshold=opponent_threshold,
     )
     negative = weights < 0
+    active = recipients >= 0
     incoming = np.zeros(beliefs.shape[0])
-    np.add.at(incoming, recipients, np.abs(weights))
+    np.add.at(incoming, recipients[active], np.abs(weights[active]))
     repulsion = np.zeros(beliefs.shape[0])
     np.add.at(repulsion, recipients[negative], -weights[negative])
     paid_beliefs = np.zeros_like(beliefs, dtype=float)
-    np.add.at(paid_beliefs, recipients, weights[:, None] * beliefs)
+    np.add.at(paid_beliefs, recipients[active], weights[active, None] * beliefs[active])
     updated = beliefs.astype(float, copy=True)
     influenced = incoming > 0
     updated[influenced] = (
@@ -298,13 +363,35 @@ def payment_amounts(config: Config, opening_wealth: np.ndarray, payment_mode: st
 
 
 def simulate(config: Config, inputs: PreparedInputs, payment_mode: str) -> Result:
-    """Run synchronous evidence, payment-weighted pooling, and cash settlement."""
+    """Select contacts, update payer-specific loyalty, pool beliefs, and settle cash.
+
+    ``relationships[j, i]`` is recipient i's receptivity to payer j. Contacts use
+    opening-round signs; any positive actual payment makes a conditional recipient
+    an ally immediately. Its fifth unpaid round (by default) repels before pooling.
+    """
     if (
         inputs.initial_wealth.size != config.n_agents
         or inputs.theta.size != config.grid_size
         or inputs.observations.size != config.rounds
     ):
         raise ValueError("config dimensions must match prepared inputs")
+    if config.ally_giver_fraction + config.opponent_giver_fraction > 0 and (
+        inputs.giving_preferences is None or inputs.contact_uniforms is None
+    ):
+        raise ValueError("preferential giving requires prepared giving_preferences and contact_uniforms")
+    if config.conditional_ally_fraction > 0 and inputs.conditional_allies is None:
+        raise ValueError("payment-dependent loyalty requires prepared conditional_allies")
+    preferential_payers = (
+        np.flatnonzero(inputs.giving_preferences)
+        if inputs.giving_preferences is not None else np.empty(0, dtype=int)
+    )
+    if preferential_payers.size and inputs.contact_uniforms is None:
+        raise ValueError("preferential giving requires prepared contact_uniforms")
+    conditional_edges = (
+        inputs.adjacency & inputs.conditional_allies[None, :]
+        if inputs.conditional_allies is not None else np.zeros_like(inputs.adjacency)
+    )
+    dynamic_relationships = np.any(conditional_edges)
     if config.income_rate > 0 and (
         np.log(inputs.initial_wealth.sum())
         + config.rounds * np.log1p(config.income_rate)
@@ -314,6 +401,18 @@ def simulate(config: Config, inputs: PreparedInputs, payment_mode: str) -> Resul
     beliefs = np.empty((config.rounds + 1, config.n_agents, config.grid_size))
     wealth = np.empty((config.rounds + 1, config.n_agents))
     payments = np.empty((config.rounds, config.n_agents))
+    actual_recipients = np.empty(inputs.recipients.shape, dtype=int)
+    relationships = inputs.relationships.copy()
+    if dynamic_relationships:
+        relationship_history = np.empty(
+            (config.rounds + 1, config.n_agents, config.n_agents), dtype=relationships.dtype,
+        )
+        relationship_history[0] = relationships
+        unpaid_rounds = np.zeros_like(relationships, dtype=int)
+    else:
+        relationship_history = np.broadcast_to(
+            relationships, (config.rounds + 1, config.n_agents, config.n_agents),
+        )
     beliefs[0] = inputs.initial_beliefs
     wealth[0] = inputs.initial_wealth
     # Equal reference payments from every neighbor recover the source ally update.
@@ -328,19 +427,46 @@ def simulate(config: Config, inputs: PreparedInputs, payment_mode: str) -> Resul
         )
         opening_wealth = wealth[step]
         payments[step] = payment_amounts(config, opening_wealth, payment_mode)
-        recipients = inputs.recipients[step]
+        recipients = actual_recipients[step]
+        recipients[:] = inputs.recipients[step]
+        for payer in preferential_payers:
+            neighbors = np.flatnonzero(inputs.adjacency[payer])
+            preferred = relationships[payer, neighbors] == inputs.giving_preferences[payer]
+            weights = np.zeros(neighbors.size)
+            if np.any(preferred):
+                weights[preferred] = config.preference_probability / preferred.sum()
+            if np.any(~preferred):
+                weights[~preferred] = (1.0 - config.preference_probability) / (~preferred).sum()
+            cumulative = np.cumsum(weights)
+            if cumulative[-1] > 0:
+                cumulative /= cumulative[-1]
+                recipients[payer] = neighbors[np.searchsorted(
+                    cumulative, inputs.contact_uniforms[step, payer], side="right",
+                )]
+            else:
+                recipients[payer] = -1
+        active = recipients >= 0
+        payments[step, ~active] = 0.0
+        if dynamic_relationships:
+            unpaid_rounds[conditional_edges] += 1
+            paid = np.flatnonzero(active & (payments[step] > 0))
+            conditional_paid = paid[inputs.conditional_allies[recipients[paid]]]
+            relationships[conditional_paid, recipients[conditional_paid]] = 1
+            unpaid_rounds[conditional_paid, recipients[conditional_paid]] = 0
+            relationships[conditional_edges & (unpaid_rounds >= config.loyalty_rounds)] = -1
+            relationship_history[step + 1] = relationships
         beliefs[step + 1] = social_update(
             post_evidence, recipients, payments[step], self_weight,
-            inputs.relationships, config.reference_payment,
+            relationships, config.reference_payment,
             influence_rule=config.influence_rule, opening_wealth=opening_wealth,
             opponent_threshold=config.opponent_threshold,
         )
         incoming = np.zeros(config.n_agents)
-        np.add.at(incoming, recipients, payments[step])
+        np.add.at(incoming, recipients[active], payments[step, active])
         if config.income_rate > 0:
             wealth[step + 1] = (1.0 + config.income_rate) * opening_wealth - payments[step] + incoming
         else:
             wealth[step + 1] = opening_wealth - payments[step] + incoming
         if not np.all(np.isfinite(wealth[step + 1])) or not np.all(np.isfinite(beliefs[step + 1])):
             raise ValueError("simulation exceeded finite numerical arithmetic; reduce rounds or income_rate")
-    return Result(beliefs, wealth, payments, payment_mode)
+    return Result(beliefs, wealth, payments, payment_mode, actual_recipients, relationship_history)

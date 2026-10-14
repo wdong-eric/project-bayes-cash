@@ -4,6 +4,7 @@ import csv
 import importlib.util
 import json
 from pathlib import Path
+import sys
 
 import numpy as np
 from numpy.testing import assert_allclose, assert_array_equal
@@ -12,11 +13,14 @@ import pytest
 from bayes_cash.model import Config, make_inputs
 
 
-spec = importlib.util.spec_from_file_location(
-    "compare_opponents", Path(__file__).parents[1] / "scripts" / "compare_opponents.py",
-)
+scripts = Path(__file__).parents[1] / "scripts"
+spec = importlib.util.spec_from_file_location("compare_opponents", scripts / "compare_opponents.py")
 comparison = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(comparison)
+sys.path.insert(0, str(scripts))
+try:
+    spec.loader.exec_module(comparison)
+finally:
+    sys.path.remove(str(scripts))
 
 
 @pytest.mark.parametrize("mode", comparison.SCENARIOS)

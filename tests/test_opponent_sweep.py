@@ -6,6 +6,7 @@ import hashlib
 import importlib.util
 import json
 from pathlib import Path
+import sys
 
 import numpy as np
 from numpy.testing import assert_allclose, assert_array_equal
@@ -14,11 +15,14 @@ import pytest
 from bayes_cash.model import Config, PAYMENT_MODES, PreparedInputs, Result, make_inputs, simulate
 
 
-spec = importlib.util.spec_from_file_location(
-    "sweep_opponents", Path(__file__).parents[1] / "scripts" / "sweep_opponents.py",
-)
+scripts = Path(__file__).parents[1] / "scripts"
+spec = importlib.util.spec_from_file_location("sweep_opponents", scripts / "sweep_opponents.py")
 sweep = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(sweep)
+sys.path.insert(0, str(scripts))
+try:
+    spec.loader.exec_module(sweep)
+finally:
+    sys.path.remove(str(scripts))
 
 
 def test_continuation_keeps_old_500_rounds_and_long_horizon_prefixes():

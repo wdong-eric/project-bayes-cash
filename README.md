@@ -4,7 +4,9 @@ A runnable experiment following the discrete belief dynamics in
 [YutongB/Opinion-Dynamics](https://github.com/YutongB/Opinion-Dynamics), with
 payment-weighted social influence and cash transfers. Optional income adds an
 explicit source of new money. Agents observe shared
-coin-toss evidence and contact one randomly chosen neighbour per round. Payments
+coin-toss evidence and contact at most one neighbour per round. Agents can prefer
+to give to allies or opponents, and recipients can require regular payments to
+remain allies. Payments
 are a fixed amount, a fraction of the payer's current wealth, or the maximum of
 the two (the hybrid rule). The recipient gains the money. Allied payments buy
 attraction; opponent payments weaken repulsion. The original allies-only model
@@ -39,15 +41,17 @@ Open `http://127.0.0.1:8765/`. The app calls the existing Python simulator and
 needs no JavaScript dependencies or external services. Choose any subset of the
 BA, connected random-regular (degree `2m`), and complete networks, then run the
 experiment. Each run includes fixed, fractional, hybrid, and no-payment arms.
-Controls expose public evidence, opponent probability, attenuation/tanh influence,
-proportional income and its spending budget, wealth distribution, and model scales.
+Controls expose public evidence, opponent probability, giver preferences,
+payment-dependent loyalty, attenuation/tanh influence, proportional income and
+its spending budget, wealth distribution, and model scales.
 
 Play, pause, step, or scrub the shared timeline. Select a network node or an agent
 card to inspect its **discrete belief PMF**, compare payment rules, and follow its
 history heatmap. Network glyphs and all-agent mini-plots show probability masses
 on a fixed 0–1 vertical scale. The topology comparison holds the agent and payment
-rule fixed. Solid/dashed edges show baseline ally/opponent labels, including under
-tanh where effective directed contact signs can change.
+rule fixed. Solid/dashed edges show **initial** ally/opponent labels. The selected
+agent's relationship table shows both current directed stances; under the tanh
+law an opponent contact can still carry attractive effective influence.
 
 **Save replay HTML** downloads the current experiment as a self-contained offline
 replay. Playback, node selection, and comparisons remain interactive; new model
@@ -68,14 +72,18 @@ snapshot. The editable interface lives in `src/bayes_cash/web/explorer.html`.
 Viewer defaults use 24 agents, 160 rounds, and opponent probability 0.2 for a
 responsive preview. The batch model defaults remain unchanged. Limits are
 4–100 agents, 1–1000 rounds,
-5–51 grid points, and four million exported belief values. Up to 501 display
+5–51 grid points, and four million exported belief and relationship values combined.
+Relationship histories count toward this limit when payment-dependent loyalty is enabled.
+Up to 501 display
 states include the initial and final states; all model rounds are computed.
 The app shows sampled-frame status and steps through actual saved states without
 interpolating. Request fewer agents, grid points, rounds, or networks if the
 export-size limit is exceeded.
 
-Initial beliefs, wealth, and observations are identical across network families;
-contacts and edge signs are shared across payment rules within a network. BA
+Initial beliefs, wealth, observations, and agent traits are identical across
+network families. Within a network, payment rules share initial relationship
+labels and recipient random draws. Their actual contacts and later relationships
+can diverge when payment-dependent loyalty affects whom givers target. BA
 matches `make_inputs` and `simulate` exactly at the requested horizon. The other
 networks are new full-belief exploratory runs, extending the earlier cash-only
 controls. Changing the horizon can change earlier contacts, so hold both seed and
@@ -92,10 +100,10 @@ python -m pytest -q
 ```
 
 The command runs **both uniform and loguniform initial wealth**, each with fixed,
-fractional, hybrid, and no-payment scenarios. With all allies, the no-payment
-control learns only from public evidence. With opponents it also experiences
-undamped repulsive contacts. A nonempty output directory is refused to protect
-previous runs.
+fractional, hybrid, and no-payment scenarios. With the default traits and all
+allies, the no-payment control learns only from public evidence. With opponents
+it also experiences undamped repulsive contacts. A nonempty output directory is
+refused to protect previous runs.
 
 For another paired realization:
 
@@ -108,6 +116,21 @@ To give each undirected edge a 20% probability of being an opponent relationship
 ```bash
 python -m bayes_cash --opponent-fraction 0.2 --output outputs/opponents_demo
 ```
+
+To sample 40% ally-preferring givers, 40% opponent-preferring givers, and 20%
+uniform givers, with an independent 30% probability of requiring regular payment:
+
+```bash
+python -m bayes_cash --opponent-fraction 0.2 \
+  --ally-giver-fraction 0.4 --opponent-giver-fraction 0.4 \
+  --preference-probability 0.8 --conditional-ally-fraction 0.3 \
+  --loyalty-rounds 5 --output outputs/giver-loyalty-demo
+```
+
+The fractions are sampling probabilities, so realized population shares vary.
+Set `--preference-probability 1` for strict preferred-group targeting. Both giver
+fractions and the conditional-ally fraction default to zero, retaining the
+original uniform-contact, static-relationship model exactly.
 
 All model parameters are exposed by `python -m bayes_cash --help`. For example:
 
@@ -127,9 +150,12 @@ with attachment parameter 3, 500 rounds, 21 grid points, true coin bias 0.6, and
 social rate mu = 0.25. All agents are persuadable; there are no partisans. The
 default opponent fraction is zero. For a positive fraction, each existing edge
 is independently designated ally or opponent by a separate random stream. These
-baseline labels are symmetric and fixed through time; the optional tanh rule
-lets effective directed contact signs change. Adding labels changes none of the random
-graph, prior, wealth, coin, or recipient draws.
+initial labels are symmetric. They remain fixed unless payment-dependent
+loyalty is enabled, which can make later relationships directional. The optional
+tanh rule separately lets effective contact weights change sign. Adding traits
+or relationship labels changes none of the random graph, prior, wealth, or coin
+draws; realized contacts can depend on relationships when giver preferences are
+enabled.
 NetworkX builds the graph; NumPy implements the equations, without requiring the
 upstream package's compiled graph-tool dependency.
 
@@ -178,9 +204,33 @@ social-only diagnostic, q_i = p_i.
 
 ### 3. Directed payments, using opening wealth
 
-Each payer j chooses one neighbour r_j uniformly, independently of opinions,
-cash, and affordability. Choices for **all rounds** are generated before any
-scenario is run, so failed payments cannot alter later random contacts.
+By default, each payer j chooses one neighbour r_j uniformly, independently of
+opinions, cash, and affordability. The original uniform recipient schedule is
+generated for **all rounds** before any scenario runs. Optional giver traits
+instead use shared random draws to choose from the current relationship groups:
+
+- `ally_giver_fraction`: probability an agent prefers paying allies.
+- `opponent_giver_fraction`: probability an agent prefers paying opponents.
+  The two fractions sum to at most one; the remainder choose uniformly over all
+  neighbours.
+- `preference_probability` (default 0.8): relative group weight p for the
+  preferred group and 1-p for the other group, then uniform selection within the
+  chosen group. With both groups present, the preferred group is chosen with
+  probability p regardless of its size; p=0.5 gives equal group probabilities,
+  not uniform selection over all neighbours when the groups differ in size.
+  Weights are normalized over nonempty groups with positive weight. At p=1,
+  only the preferred group is eligible; if
+  it is empty the giver skips contact and payment. At p=0, the same rule applies
+  to the other group. Uniform givers are unaffected by p.
+
+The directed sign `relationships[j, i]` means **recipient i's receptivity to
+payer j**: +1 for ally and -1 for opponent. A giver selects recipients receptive
+or opposed to that giver; the reverse direction need not have the same sign.
+Selection uses relationships at the start of the round, before current
+payments or loyalty expiration. It never chooses by the payment's eventual
+effective influence under tanh. Shared random draws preserve pairing, but
+payment rules can produce different recipient choices after their relationships
+diverge.
 
 ```math
 m_j=\begin{cases}
@@ -210,9 +260,33 @@ After all payments have been computed, cash settles simultaneously:
 M_i=\sum_j P_{ji},\qquad W_i'=W_i-m_i+M_i.
 ```
 
-Every payment is debited from its payer and credited to its recipient, so total
-cash is conserved. Simultaneous settlement prevents agent iteration order from
-changing who can afford to pay.
+An agent with no eligible recipient pays zero. Every payment is debited from its
+payer and credited to its recipient, so total cash is conserved. Simultaneous
+settlement prevents agent iteration order from changing who can afford to pay.
+
+### Payment-dependent loyalty
+
+`conditional_ally_fraction` (default 0) independently samples which recipients
+require regular payments. This trait can coexist with either giver preference
+or uniform giving. `loyalty_rounds` is a positive integer, default 5.
+
+For a conditional recipient i, any strictly positive **actual** payment from j
+immediately sets `relationships[j, i] = +1` and resets that pair's unpaid-round
+counter to zero. The reverse relationship is unaffected. Counters advance every
+simulation round without a positive j-to-i payment, including rounds when j
+contacts somebody else, skips contact, cannot afford the payment, or requests
+zero. On the fifth consecutive unpaid round (or the configured threshold), i
+becomes j's opponent. Each payer has a separate counter, so payment from one
+payer cannot sustain loyalty to another.
+
+All pairs begin with the sampled initial signs and zero unpaid rounds. Thus
+initial conditional allies also defect after five unpaid rounds. Ordinary
+recipients retain their initial signs. Loyalty updates occur after payment
+amounts are determined and before social influence: a payment that converts an
+opponent uses the allied influence law in the same round; an unpaid contact on
+the expiration round uses the opponent law. Cash and belief updates remain
+synchronous. The tanh law uses this updated relationship sign and the
+recipient's opening wealth.
 
 ### 4. Payment-weighted social pooling: allies-only limit
 
@@ -315,10 +389,11 @@ no-payment control combines public evidence with undamped antagonism. It is not
 the allies-only evidence control.
 
 Cash is transferred identically along allied and opposing edges, and the sign
-does not change affordability or whom an agent contacts. For each payment rule,
-wealth and payment histories must be identical between all-allied and mixed
-networks. This is still an exogenous spending model, not utility-maximizing
-choice of whether to pay an opponent.
+does not change affordability. With uniform givers, wealth and payment histories
+remain identical between all-allied and mixed networks. Preference-based
+targeting can change contacts and therefore later cash balances. The spending
+amount is still imposed by the selected payment rule rather than derived from
+utility maximization.
 
 ### 6. Optional wealth-scaled tanh transition
 
@@ -337,15 +412,16 @@ w_{ji}(t)=W_i(t)\tanh\!\left[\frac{m_j(t)}{W_i(t)}
 ```
 
 Both the leading amplitude and the money scale inside tanh are the recipient's
-**opening wealth**, before current income or transfers. For a baseline opponent,
+**opening wealth**, before current income or transfers. For a current opponent,
 payments below 5% of that wealth repel, equality is neutral, and larger payments
 attract. The sign is recalculated each contact and can switch back later. This
-does not store a cumulative relationship or change the underlying edge label.
-Baseline allies remain nonnegative; an unpaid allied contact has zero weight.
+does not itself store a cumulative relationship or change the relationship
+label; payment-dependent loyalty separately changes that label. Current allies
+remain nonnegative; an unpaid allied contact has zero weight.
 When recipient wealth is exactly zero, the prefactor limit sets the weight to
 zero without an epsilon. Receiving cash can then affect subsequent rounds.
 
-With f=kappa=0.05, a fractional payment makes a baseline opponent attractive
+With f=kappa=0.05, a fractional payment makes a current opponent attractive
 exactly when the payer is wealthier than the recipient: its tanh argument is
 `0.05*(W_j/W_i-1)`. For a fixed payment c=1, attraction instead requires
 recipient wealth below `c/kappa=20`, provided the payer makes the payment.
@@ -355,8 +431,8 @@ even at very large wealth. No numerical tolerance changes the sign boundary.
 
 The existing signed social equation is used with these effective weights.
 Repulsion and positive-part projection are determined by the **effective
-negative weights**, including when a formerly opposing contact has become
-attractive. The old constant self-weight remains
+negative weights**; attractive weights enter the positive influence term even
+for a contact whose relationship label is negative. The old constant self-weight remains
 `degree * reference_payment * (1-social_rate)/social_rate`; `reference_payment`
 continues to set this fixed money scale but does not set the tanh denominator.
 For small relative allied payments, `W_i*tanh(m/W_i)` approaches m, recovering
@@ -368,7 +444,8 @@ increase tanh weights relative to self-belief. The new model is not invariant
 under rescaling all nominal wealth while holding self-weight fixed. A model
 with wealth-scaled self-weight would be a different convention and is not used
 in this comparison. The old no-allied-neighbour singleton certificate must not
-be applied to tanh runs: baseline opponents can supply attractive input later.
+be applied to tanh or payment-dependent-loyalty runs: initial opponents can
+supply attractive input later.
 
 ### 7. Optional proportional income and an income budget
 
@@ -426,9 +503,10 @@ Each run saves:
 
 - `summary.json`: parameters, installed package versions, upstream revision,
   conventions, final diagnostics, and numerical conservation errors.
-- `{loguniform,uniform}_trajectories.npz`: grid, network, relationship signs, initial distributions,
-  initial wealth, shared evidence, recipient schedule, and full belief/wealth/
-  payment histories for all four scenarios.
+- `{loguniform,uniform}_trajectories.npz`: grid, network, initial relationship signs,
+  sampled agent traits, initial distributions, initial wealth, shared evidence,
+  recipient random inputs, and full belief/wealth/payment/actual-recipient/
+  directed-relationship histories for all four scenarios.
 - `{loguniform,uniform}_metrics.csv`: opinion mean, disagreement, uncertainty,
   mean squared belief error, wealth summaries, Gini, total payments, and the
   fraction of agents who paid in each round.
@@ -437,18 +515,27 @@ Each run saves:
   network degree indicated by colour.
 
 For a scenario, beliefs have shape (T+1,N,K) and wealth (T+1,N), including the
-initial state at index 0. Payments and recipients have shape (T,N). Transaction
-`payments[t,j]` moves from j to `recipients[t,j]` and produces state t+1. This is
-the complete transaction ledger, including attempted contacts with zero payment.
+initial state at index 0. Payments and actual recipients have shape (T,N), and
+directed relationships have shape (T+1,N,N). Transaction `payments[t,j]` moves
+from j to that scenario's `recipients[t,j]` and produces state t+1. Recipient -1
+means no eligible contact and always has zero payment. Relationship state t+1
+includes that round's conversions and expirations and is used for its social
+update. This is the complete transaction ledger, including attempted contacts
+with zero payment. The unprefixed `recipients` field retains the original
+uniform schedule; use `{mode}_recipients` to replay an actual scenario.
+`giving_preferences` stores 1 (allies), -1 (opponents), or 0 (uniform);
+`conditional_allies` stores the independent recipient trait. `contact_uniforms`
+stores preference-selection random inputs when those are present.
 No pickle is needed to read the archives:
 
 ```python
 import numpy as np
 
-with np.load("outputs/demo/loguniform_trajectories.npz") as data:
+with np.load("outputs/giver-loyalty-demo/loguniform_trajectories.npz") as data:
     wealth = data["fractional_wealth"]
     payments = data["fractional_payments"]
-    recipients = data["recipients"]
+    recipients = data["fractional_recipients"]
+    relationships = data["fractional_relationships"]
     mean_opinions = data["fractional_beliefs"] @ data["theta"]
 ```
 
@@ -476,6 +563,14 @@ saved cash ledger and sampled belief updates were also independently replayed.
 These observations are illustrative, not an ensemble result or convergence test.
 
 ## Why the payment rule and network both matter
+
+The analysis and included study results below use uniform givers and fixed
+relationship labels. The four historical study scripts (`check_network_effects`,
+`compare_opponents`, `sweep_opponents`, and `compare_extensions`) explicitly
+reject nonzero giver-preference or conditional-ally fractions: their cash
+pairing, static-sign diagnostics, or chunked continuation assume that scope.
+Use the canonical batch command or explorer for the new traits. Existing saved
+results remain unchanged.
 
 Let g(W_j) be the actual payment after applying the affordability rule. Agent j
 selects each of its d_j neighbours with probability 1/d_j, so its expected
@@ -536,7 +631,7 @@ initial balances lie below c/f. There is no general ordering theorem for its Gin
 
 ### Paired network controls
 
-Run the cash subsystem, which is exactly independent of beliefs in this model:
+Run the cash subsystem for the original uniform-contact, no-income model:
 
 ```bash
 python scripts/check_network_effects.py --seeds 20 --rounds 5000 \
@@ -898,8 +993,8 @@ Each figure also has a PDF. `per_seed.csv` and `late_windows.csv` preserve
 individual outcomes; `summary.json` records parameters, replay conventions,
 cash hashes, means, and sample SDs. The compact `trajectories.npz` saves
 diagnostics every 50 rounds. All 960 runs succeeded; maximum relative error
-in the income-adjusted cash identity is 4.14e-13. The full implementation
-suite has 129 passing tests, including threshold signs, income budgets,
+in the income-adjusted cash identity is 4.14e-13. At the time of this study, the
+implementation suite passed 129 tests, including threshold signs, income budgets,
 simultaneous accounting, unchanged baseline trajectories, and large-value
 summary statistics. These checks establish numerical contracts, not model
 validity or convergence.
@@ -923,10 +1018,11 @@ remain in historical commits, but are no longer tracked in the current tree.
 
 ## Interpretation limits and next decisions
 
-- This first version has **wealth-to-opinion coupling**. Spending and recipient
+- The model has **wealth-to-opinion coupling**. Spending and recipient
   choice do not depend on beliefs, so changing beliefs cannot change wealth.
-  The cash-transfer dynamics are autonomous, even though cash received finances
-  later persuasion. Optional income is exogenous and proportional to wealth;
+  Cash and payment-dependent loyalty jointly evolve independently of beliefs;
+  relationship-based targeting can feed past payments back into later contacts.
+  Optional income is exogenous and proportional to wealth;
   there are no wages from labour, production, goods, or utility optimisation.
 - Common public evidence may overwhelm transient paid influence. Compare the
   no-payment control and early-time trajectories before interpreting consensus.
@@ -940,8 +1036,9 @@ remain in historical commits, but are no longer tracked in the current tree.
   seeds and examine sensitivity to the wealth range, spending rate, social rate,
   network, and grid before making scientific claims. Tests establish software
   and conservation contracts, not empirical or model validity.
-- Opponent attenuation, the opponent fraction, and the positive-part response
-  require scientific sensitivity studies. The first signed comparison uses a
+- Giver preferences, loyalty duration, opponent attenuation, the opponent
+  fraction, and the positive-part response require scientific sensitivity
+  studies. The first signed comparison uses a
   disclosed 20% opponent-edge probability and the shared reference payment scale;
   these choices have not been empirically calibrated.
 

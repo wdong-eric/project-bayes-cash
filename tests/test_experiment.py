@@ -22,21 +22,30 @@ def test_diagnostics_distinguish_disagreement_uncertainty_and_inequality():
     np.testing.assert_allclose(measured["wealth_gini"], [0.5, 0.0])
 
 
-def test_export_contains_replayable_ledger_and_refuses_overwrite(tmp_path):
-    config = Config(n_agents=4, attachment=1, rounds=3, grid_size=5)
+@pytest.mark.parametrize("traits", [{}, {
+    "ally_giver_fraction": 0.5, "opponent_giver_fraction": 0.5,
+    "conditional_ally_fraction": 1.0, "preference_probability": 1.0,
+}])
+def test_export_contains_replayable_ledger_and_refuses_overwrite(tmp_path, traits):
+    config = Config(n_agents=4, attachment=1, rounds=7, grid_size=5, **traits)
     output = tmp_path / "experiment"
     summary = run_experiment(config, output)
     saved_summary = (output / "summary.json").read_bytes()
     assert json.loads(saved_summary) == summary
     for distribution in ("uniform", "loguniform"):
         with np.load(output / f"{distribution}_trajectories.npz", allow_pickle=False) as data:
-            assert data["fixed_beliefs"].shape == (4, 4, 5)
+            assert data["fixed_beliefs"].shape == (8, 4, 5)
             np.testing.assert_array_equal(data["fixed_beliefs"][0], data["initial_beliefs"])
             for mode in ("fixed", "fractional", "hybrid", "no_payment"):
+                assert data[f"{mode}_relationships"].shape == (8, 4, 4)
+                np.testing.assert_array_equal(data[f"{mode}_relationships"][0], data["relationships"])
                 reconstructed = data["initial_wealth"].copy()
                 for t in range(config.rounds):
-                    for payer, receiver in enumerate(data["recipients"][t]):
+                    for payer, receiver in enumerate(data[f"{mode}_recipients"][t]):
                         amount = data[f"{mode}_payments"][t, payer]
+                        if receiver == -1:
+                            assert amount == 0
+                            continue
                         reconstructed[payer] -= amount
                         reconstructed[receiver] += amount
                     np.testing.assert_allclose(reconstructed, data[f"{mode}_wealth"][t + 1])
@@ -60,7 +69,7 @@ def test_income_exports_reconstruct_source_and_transfers(tmp_path):
                 np.testing.assert_allclose(income, config.income_rate * wealth[:-1])
                 assert np.all(payments <= income)
                 for t in range(config.rounds):
-                    incoming = np.bincount(data["recipients"][t], weights=payments[t], minlength=config.n_agents)
+                    incoming = np.bincount(data[f"{mode}_recipients"][t], weights=payments[t], minlength=config.n_agents)
                     np.testing.assert_allclose(wealth[t + 1], wealth[t] + income[t] - payments[t] + incoming)
                 item = summary["results"][distribution]["scenarios"][mode]
                 assert "max_absolute_cash_conservation_error" not in item

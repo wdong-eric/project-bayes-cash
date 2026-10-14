@@ -13,6 +13,7 @@ import numpy as np
 
 from bayes_cash.experiment import diagnostics
 from bayes_cash.model import PAYMENT_MODES, Config, contact_weights, simulate
+from _legacy_scope import require_static_study
 from sweep_opponents import make_sweep_inputs, _group_rows, CONTINUATION_NAMESPACE
 
 
@@ -34,6 +35,7 @@ def extension_config(config, arm, income_rate):
 
 def run_trajectory(config, inputs, mode, horizons, stride=50, chunk_size=500):
     """Save bounded diagnostic histories and cash hashes without retaining full states."""
+    require_static_study(config)
     horizons = tuple(sorted(set(horizons)))
     if config.rounds < 4 or stride < 1 or chunk_size < 1:
         raise ValueError("rounds must be at least four; stride and chunk_size must be positive")
@@ -125,6 +127,7 @@ def _run_job(job):
 def run_comparison(config, seed_count, output, probabilities=(0.2, 1.0), income_rate=0.1,
                    horizons=(500, 5000), stride=50, chunk_size=500, workers=4):
     """Run all four interventions with shared random inputs and preserve seed statistics."""
+    require_static_study(config)
     fractions = np.asarray(probabilities, dtype=float)
     if fractions.ndim != 1 or not fractions.size or not np.isfinite(fractions).all() or np.any((fractions < 0) | (fractions > 1)) or np.any(np.diff(fractions) <= 0):
         raise ValueError("fractions must be finite, unique, increasing probabilities")

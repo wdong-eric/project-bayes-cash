@@ -13,6 +13,7 @@ import numpy as np
 
 from bayes_cash.experiment import diagnostics
 from bayes_cash.model import PAYMENT_MODES, Config, make_inputs, simulate
+from _legacy_scope import require_static_study
 
 
 DISTRIBUTIONS = ("loguniform", "uniform")
@@ -35,6 +36,7 @@ def make_sweep_inputs(config, distribution):
     afterwards. Continuation contacts use time-major uniform draws, making all
     prefixes beyond round 500 independent of the requested final horizon.
     """
+    require_static_study(config)
     prefix = make_inputs(replace(config, rounds=min(PREFIX_ROUNDS, config.rounds)), distribution)
     extra = config.rounds - prefix.observations.size
     if extra == 0:
@@ -83,6 +85,7 @@ def sweep_diagnostics(result, theta, true_bias, relationships):
 
 def run_trajectory(config, inputs, mode, horizons, stride=50, chunk_size=500):
     """Run the existing model in bounded chunks, retaining exact late-round means."""
+    require_static_study(config)
     if config.rounds < 4 or stride < 1 or chunk_size < 1:
         raise ValueError("rounds must be at least four; stride and chunk_size must be positive")
     horizons = tuple(sorted(set(int(t) for t in horizons)))
@@ -189,6 +192,7 @@ def _group_rows(rows, keys, metrics):
 def run_sweep(config, seed_count, output, probabilities=None, horizons=(500, 5000, 20000),
               stride=50, chunk_size=500, workers=4):
     """Save paired sweep metrics, replayable inputs, cash hashes, and run metadata."""
+    require_static_study(config)
     fractions = np.linspace(0.0, 1.0, 11) if probabilities is None else np.asarray(probabilities, dtype=float)
     if fractions.ndim != 1 or fractions.size < 1 or not np.isfinite(fractions).all() or np.any((fractions < 0) | (fractions > 1)):
         raise ValueError("opponent fractions must be a finite one-dimensional sequence in [0, 1]")

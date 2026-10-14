@@ -13,7 +13,7 @@ import networkx as nx
 import numpy as np
 
 from .experiment import COLORS, LABELS, diagnostics
-from .model import PAYMENT_MODES, Config, PreparedInputs, make_inputs, simulate
+from .model import PAYMENT_MODES, Config, make_inputs, simulate
 
 
 TOPOLOGIES = {
@@ -23,7 +23,7 @@ TOPOLOGIES = {
 }
 MODES = (*PAYMENT_MODES, "no_payment")
 DEFAULT_CONFIG = Config(n_agents=24, rounds=160, attachment=2, opponent_fraction=0.2)
-MAX_BELIEF_VALUES = 4_000_000
+MAX_TRAJECTORY_VALUES = 4_000_000
 MAX_REQUEST_BYTES = 32_768
 DATA_MARKER = "/*__EXPLORER_DATA__*/"
 
@@ -56,9 +56,14 @@ def parse_request(payload):
         raise ValueError("random-regular degree 2 * attachment must be less than n_agents")
     frame_count = min(config.rounds + 1, 501)
     belief_values = frame_count * config.n_agents * config.grid_size * len(MODES) * len(topologies)
-    if belief_values > MAX_BELIEF_VALUES:
+    relationship_values = (
+        frame_count * config.n_agents ** 2 * len(MODES) * len(topologies)
+        if config.conditional_ally_fraction > 0 else 0
+    )
+    if belief_values + relationship_values > MAX_TRAJECTORY_VALUES:
         raise ValueError(
-            f"requested {belief_values:,} belief values exceeds the {MAX_BELIEF_VALUES:,} limit; "
+            f"requested {belief_values:,} belief values and {relationship_values:,} relationship values "
+            f"exceeds the {MAX_TRAJECTORY_VALUES:,} total limit; "
             "reduce agents, rounds, grid size, or networks"
         )
     return config, distribution, topologies
@@ -78,9 +83,9 @@ def make_network_inputs(config, distribution, topologies):
             prepared[topology] = original
             continue
         index = tuple(TOPOLOGIES).index(topology)
-        graph_rng, contact_rng, relationship_rng = (
+        graph_rng, contact_rng, relationship_rng, preference_rng = (
             np.random.default_rng(stream)
-            for stream in np.random.SeedSequence([config.seed, 837211, index]).spawn(3)
+            for stream in np.random.SeedSequence([config.seed, 837211, index]).spawn(4)
         )
         if topology == "regular":
             degree = 2 * config.attachment
@@ -108,9 +113,12 @@ def make_network_inputs(config, distribution, topologies):
             recipients[:, payer] = contact_rng.choice(
                 np.flatnonzero(adjacency[payer]), size=config.rounds,
             )
-        prepared[topology] = PreparedInputs(
-            original.theta, adjacency, relationships, original.initial_beliefs,
-            original.initial_wealth, original.observations, recipients, distribution,
+        prepared[topology] = replace(
+            original, adjacency=adjacency, relationships=relationships, recipients=recipients,
+            contact_uniforms=(
+                preference_rng.random((config.rounds, config.n_agents))
+                if config.ally_giver_fraction + config.opponent_giver_fraction > 0 else None
+            ),
         )
     return prepared
 
@@ -124,6 +132,8 @@ def simulation_payload(payload):
     response = {
         "config": asdict(config), "distribution": distribution,
         "theta": first.theta.tolist(), "observations": first.observations.astype(int).tolist(),
+        "giving_preferences": first.giving_preferences.tolist(),
+        "conditional_allies": first.conditional_allies.tolist(),
         "frames": frames.tolist(), "topologies": [],
         "modes": [{"id": mode, "label": LABELS[mode], "color": COLORS[mode]} for mode in MODES],
         "metadata": {
@@ -133,14 +143,15 @@ def simulation_payload(payload):
                 "beliefs": "Probability masses on an equally spaced theta grid, including endpoints; not continuous densities.",
                 "rounds": "Frame t is the state after t updates. At t>0 its payment/contact arrays contain ledger index t-1, the update producing that state; frame 0 has zero payments and no contacts. Sampled frames retain actual states, not averages or interpolation.",
                 "evidence": "One shared Bernoulli outcome per round when enabled, before social influence and cash settlement.",
-                "pairing": "Identical priors, initial wealth, and public observations across networks; contacts and edge signs shared across payment modes within each network.",
+                "pairing": "Identical priors, initial wealth, agent traits, and public observations across networks; initial signs and contact randomness shared across payment modes within each network. Realized contacts can diverge as loyalty changes.",
                 "topologies": "BA attachment m; connected random regular degree 2m; complete. These also change degree-dependent self-weight. BA and regular mean degrees are close but unequal.",
                 "randomness": "BA exactly uses make_inputs at the requested horizon; other graphs use independent graph/contact/sign streams. Changing rounds can change contacts; no prefix-stable claim.",
                 "scope": "New exploratory full-belief runs. Non-BA trajectories do not replay the earlier cash-only network controls; a single seed is not an ensemble conclusion.",
                 "cash": "Nominal arbitrary units. Income equals income_rate times opening wealth; income and transfers settle together. Positive income also caps each requested payment at that round's income.",
-                "payments": "One uniformly sampled neighbor per payer per round. Pay the requested amount only if affordable; otherwise skip. Hybrid requests max(fixed, fraction times opening wealth).",
+                "payments": "Uniform givers sample a neighbor. Preferential givers choose an ally/opponent group using preference_probability and sample uniformly within it; normalize over available groups with positive probability. No eligible group means no contact (recipient -1) and no payment. Opening-round recipient receptivity determines the group. Pay only affordable requests; hybrid requests max(fixed, fraction times opening wealth).",
+                "loyalty": "Independent recipient trait. relationships[payer][recipient] is the recipient's receptivity to that payer. Initial sampled signs and zero unpaid counters; positive actual payments immediately set ally and reset that pair's counter. After loyalty_rounds consecutive unpaid simulation rounds, set opponent before influence. Reverse and other-payer relations are independent. Scenario relationship frames are states after the displayed round; static runs use initial edges.",
                 "influence": "Self-weight is degree times reference_payment times (1-social_rate)/social_rate. Negative pooling uses the model's positive-part projection and renormalization, which can erase support.",
-                "opponents": "Static baseline edge signs. Attenuation: opponents have negative weight -reference_payment/(1+payment/reference_payment), including unpaid contacts. Tanh: recipient opening wealth times tanh(payment/wealth - opponent_threshold), with zero ally threshold and zero weight at zero recipient wealth; effective signs can change.",
+                "opponents": "Network lines show initial symmetric edge signs; conditional recipients can change directed signs later. Attenuation: current opponents have negative weight -reference_payment/(1+payment/reference_payment), including unpaid contacts. Tanh: recipient opening wealth times tanh(payment/wealth - opponent_threshold), with zero ally threshold and zero weight at zero recipient wealth; effective signs can change.",
                 "no_payment": "fixed_payment=0 with all other settings retained. Opponents can still repel and configured income is still injected; this is not a social-off control.",
             },
         },
@@ -159,7 +170,6 @@ def simulation_payload(payload):
             "positions": [positions[node].tolist() for node in range(config.n_agents)],
             "edges": np.column_stack((edge_i, edge_j, inputs.relationships[edge_i, edge_j])).tolist(),
             "degrees": inputs.adjacency.sum(axis=1).tolist(),
-            "recipients": [[]] + inputs.recipients[frames[1:] - 1].tolist(),
             "realized_opponent_fraction": float(np.mean(inputs.relationships[edge_i, edge_j] < 0)),
             "scenarios": {},
         }
@@ -174,8 +184,11 @@ def simulation_payload(payload):
                 "beliefs": result.beliefs[frames].tolist(),
                 "wealth": result.wealth[frames].tolist(),
                 "payments": [np.zeros(config.n_agents).tolist()] + result.payments[frames[1:] - 1].tolist(),
+                "recipients": [[]] + result.recipients[frames[1:] - 1].tolist(),
                 "metrics": {key: values[frames].tolist() for key, values in metrics.items()},
             }
+            if config.conditional_ally_fraction > 0:
+                network["scenarios"][mode]["relationships"] = result.relationships[frames].tolist()
         response["topologies"].append(network)
     return response
 

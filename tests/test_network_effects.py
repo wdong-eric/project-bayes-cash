@@ -3,6 +3,7 @@
 from dataclasses import replace
 import importlib.util
 from pathlib import Path
+import sys
 
 import networkx as nx
 import numpy as np
@@ -12,11 +13,14 @@ import pytest
 from bayes_cash.model import Config, make_inputs, simulate
 
 
-spec = importlib.util.spec_from_file_location(
-    "check_network_effects", Path(__file__).parents[1] / "scripts" / "check_network_effects.py",
-)
+scripts = Path(__file__).parents[1] / "scripts"
+spec = importlib.util.spec_from_file_location("check_network_effects", scripts / "check_network_effects.py")
 controls = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(controls)
+sys.path.insert(0, str(scripts))
+try:
+    spec.loader.exec_module(controls)
+finally:
+    sys.path.remove(str(scripts))
 
 
 @pytest.mark.parametrize("mode", ["fixed", "fractional", "hybrid"])

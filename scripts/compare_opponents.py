@@ -11,6 +11,7 @@ import numpy as np
 
 from bayes_cash.experiment import COLORS, LABELS, diagnostics
 from bayes_cash.model import PAYMENT_MODES, Config, make_inputs, simulate
+from _legacy_scope import require_static_study
 
 
 SCENARIOS = (*PAYMENT_MODES, "no_payment")
@@ -22,6 +23,7 @@ PANELS = (("opinion_disagreement", "SD across agents' mean opinions"),
 
 def paired_results(config, inputs, mode):
     """Change edge signs alone and require the autonomous cash paths to match."""
+    require_static_study(config)
     current = replace(config, fixed_payment=0.0) if mode == "no_payment" else config
     payment_mode = "fixed" if mode == "no_payment" else mode
     ally_inputs = replace(inputs, relationships=inputs.adjacency.astype(int))
@@ -34,6 +36,7 @@ def paired_results(config, inputs, mode):
 
 def run_comparison(config, seed_count, output):
     """Save paired outcomes, sample-SD comparisons, and replayable random inputs."""
+    require_static_study(config)
     import matplotlib
 
     matplotlib.use("Agg")

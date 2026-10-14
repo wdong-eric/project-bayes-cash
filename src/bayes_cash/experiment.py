@@ -63,10 +63,12 @@ def run_experiment(config, output):
         "upstream_commit": SOURCE_COMMIT,
         "versions": {name: version(name) for name in ("bayes-cash", "numpy", "networkx", "matplotlib")},
         "conventions": {
-            "network": "undirected Barabasi-Albert; fixed symmetric baseline ally/opponent labels; tanh effective signs can change each contact",
+            "network": "undirected Barabasi-Albert; initial symmetric ally/opponent labels; payment-dependent recipients evolve directed receptivity toward each payer",
             "beliefs": "probability masses on an equally spaced theta grid, including endpoints",
             "cash": "nominal arbitrary units; income_rate * opening wealth injected per round; no normalization of wealth",
-            "payments": "one uniformly sampled neighbor per payer; opening wealth; simultaneous income and transfer settlement; when income_rate > 0, skip requests above income",
+            "payments": "at most one neighbor per payer; uniform givers choose uniformly, preferential givers weight preferred/other groups by preference_probability and 1-preference_probability, normalized over available groups; zero eligible weight means no contact (recipient -1); opening wealth; simultaneous settlement; when income_rate > 0, skip requests above income",
+            "loyalty": "relationships[payer, recipient] is recipient receptivity toward payer. Target using opening-round signs; positive actual payment immediately allies a conditional recipient and resets that pair's clock; loyalty_rounds unpaid simulation rounds defects before influence. Initial signs have zero unpaid clocks. Reverse and other-payer stances are independent.",
+            "replay": "recipients is the prepared uniform-neighbor schedule; use each scenario's actual {mode}_recipients with {mode}_payments to replay transfers. {mode}_relationships[t] is directed state after t rounds. Traits and selection uniforms are shared across payment scenarios; actual contacts may diverge.",
             "fixed_insufficient_funds": "skip the payment, with no partial payment",
             "hybrid": "pay max(fixed_payment, wealth_fraction * opening_wealth) if affordable; otherwise skip",
             "self_weight": "degree * reference_payment * (1 - social_rate) / social_rate",
@@ -99,11 +101,19 @@ def run_experiment(config, output):
             "initial_wealth": inputs.initial_wealth,
             "observations": inputs.observations,
             "recipients": inputs.recipients,
+            "giving_preferences": inputs.giving_preferences,
+            "conditional_allies": inputs.conditional_allies,
             "config_json": json.dumps(asdict(config)),
             "upstream_commit": SOURCE_COMMIT,
         }
+        if inputs.contact_uniforms is not None:
+            payload["contact_uniforms"] = inputs.contact_uniforms
         for mode, result in results.items():
-            payload.update({f"{mode}_beliefs": result.beliefs, f"{mode}_wealth": result.wealth, f"{mode}_payments": result.payments})
+            payload.update({
+                f"{mode}_beliefs": result.beliefs, f"{mode}_wealth": result.wealth,
+                f"{mode}_payments": result.payments, f"{mode}_recipients": result.recipients,
+                f"{mode}_relationships": result.relationships,
+            })
             if config.income_rate:
                 payload[f"{mode}_income"] = config.income_rate * result.wealth[:-1]
         np.savez_compressed(output / f"{distribution}_trajectories.npz", **payload)
@@ -195,7 +205,10 @@ def main():
     for name, kind in (("n_agents", int), ("rounds", int), ("attachment", int), ("grid_size", int),
                        ("seed", int), ("true_bias", float), ("social_rate", float), ("reference_payment", float),
                        ("wealth_min", float), ("wealth_max", float), ("fixed_payment", float), ("wealth_fraction", float),
-                       ("opponent_fraction", float), ("opponent_threshold", float), ("income_rate", float)):
+                       ("opponent_fraction", float), ("opponent_threshold", float), ("income_rate", float),
+                       ("ally_giver_fraction", float), ("opponent_giver_fraction", float),
+                       ("preference_probability", float), ("conditional_ally_fraction", float),
+                       ("loyalty_rounds", int)):
         parser.add_argument("--" + name.replace("_", "-"), type=kind, default=getattr(Config(), name))
     parser.add_argument("--influence-rule", choices=("attenuation", "tanh"), default=Config().influence_rule)
     parser.add_argument("--no-public-evidence", action="store_true", help="A separate social-only diagnostic; default keeps shared coin learning.")
