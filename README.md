@@ -44,17 +44,106 @@ experiment. Each run includes fixed, fractional, hybrid, and no-payment arms.
 Controls expose public evidence, opponent probability, giver preferences,
 payment-dependent loyalty, attenuation/tanh influence, proportional income and
 its spending budget, wealth distribution, and model scales.
+Expand **What the plots mean & model conventions** for a grouped reference to
+every model and intervention parameter, including its units, allowed values,
+timing, and interactions with the other settings.
 
 Play, pause, step, or scrub the shared timeline. Select a network node or an agent
 card to inspect its **discrete belief PMF**, compare payment rules, and follow its
 history heatmap. Network glyphs and all-agent mini-plots show probability masses
 on a fixed 0–1 vertical scale. The topology comparison holds the agent and payment
-rule fixed. Solid/dashed edges show **initial** ally/opponent labels. The selected
-agent's relationship table shows both current directed stances; under the tanh
-law an opponent contact can still carry attractive effective influence.
+rule fixed. Edges show **current** connections and distinguish mutual allies,
+mutual opponents, and mixed directed stances. The selected agent's relationship
+table shows both directions; under the tanh law an opponent contact can still
+carry attractive effective influence. Node positions stay fixed during playback.
+
+The **Baseline · no interventions** and **Intervened** networks play side by side,
+with the same layout, selected agent, payment rule, and displayed round. Selecting
+a node in either view pauses both. The baseline runs the same model with an empty
+intervention log, using the **exact same prepared inputs**: initial graph and
+relationship signs, beliefs, cash, agent traits, evidence, scheduled recipients,
+and contact uniforms. It is recomputed from those saved inputs, without reseeding
+or generating a new network. With no logged interventions, both views are identical.
+
+The selected-agent comparison shows both belief PMFs and baseline/intervened
+values for beliefs, cash, and population metrics. Differences are **intervened
+minus baseline**. Before the first effective intervention round the trajectories
+match; after it, realized contacts and relationships may diverge even though the
+underlying random inputs remain paired. The baseline uses the selected payment
+rule, including its configured income and loyalty; choosing **No payment** is a
+separate comparison. These differences describe this paired realization, not an
+average intervention effect across random seeds.
+
+Click a node to pause playback and choose an intervention from the grouped menu:
+
+- **Behavior:** giving preference (uniform, allies, or opponents) and
+  payment-dependent loyalty.
+- **Money:** add or withdraw a specified amount of external cash once. This
+  changes total money; it is not a transfer from another agent. A withdrawal
+  exceeding the selected agent's opening cash in any scenario rejects the
+  intervention and names the failing network, payment rule, and round.
+- **Beliefs:** blend once toward a Gaussian target using center, width, and
+  strength. On the existing theta grid, normalize the Gaussian by a sum, then
+  apply `p_new = (1 - strength) * p_current + strength * target`. Strength 0
+  leaves beliefs unchanged; strength 1 replaces them. Center and width describe
+  the input Gaussian, not its discrete mean and standard deviation after
+  normalization on the bounded grid.
+- **Connections:** set an ally connection, set an opponent connection, or remove
+  a connection to another agent. Setting a connection creates a missing edge or
+  updates an existing one; both directed signs are assigned and that pair's
+  unpaid clocks reset. Removing an absent edge is a no-op. Unrelated clocks and
+  relationships are preserved. Isolated agents still observe public evidence
+  and receive configured income, but have no contacts or social influence.
+
+Choose **Effective from round** and apply the intervention. Round 51 means the change
+is applied before update 51, preserving states 0–50. The default is the next
+round after the displayed state; at the final state, choose an earlier round.
+Future changes can be scheduled, and choosing an earlier round recomputes the
+affected history. Behavior settings persist until superseded; cash and belief
+changes happen once, with their consequences carried forward. They apply to the same
+agent in every selected network and payment rule, preserving the paired
+comparison. The initial conditions and underlying random draws stay fixed;
+actual contacts can diverge when the edited behavior changes recipient choices.
+
+The intervention log records the agent, effective round, and changed values.
+Events execute before the round's evidence, contacts, income, and payments, with
+log order breaking ties. Trait and connection assignments use the last assigned
+value; cash changes accumulate and belief blends compose in order. Enabling
+payment-dependent loyalty starts fresh unpaid-round clocks before that update.
+Disabling it preserves current directed relationships. Re-enabling starts fresh
+clocks again, while setting an already enabled trait to true preserves its clocks.
+Payment amounts, preference probability, and loyalty duration remain global.
+Running a new experiment from the initialization controls clears the old log.
+
+Connection edits change the current degree used in each agent's self-weight.
+Uniform givers retain the original prepared recipient when their neighbor set
+matches its initial state; otherwise the stored contact uniform chooses among
+sorted current neighbors. Preferential givers use the same stored uniforms with
+their current relationship groups. No new random draws are made during editing.
+Network-family labels describe the initial graph; edited graphs can differ.
+
+External cash adjustments have a separate ledger, distinct from payments and
+proportional income. Income uses opening wealth **after** the cash intervention,
+so each update obeys `change in total cash = external adjustment + income`.
+The viewer reports total cash, external adjustments, and their cumulative sum.
+Withdrawing all cash is allowed; the Gini coefficient is then undefined and is
+saved as JSON `null`, rather than assigned an arbitrary inequality value.
+
+**Save experiment JSON** records the complete configuration, generated inputs
+(including every network, initial belief and cash value, evidence, and contact
+random draw), ordered interventions, and model/dependency identity.
+**Load experiment JSON** in the local app reruns those exact inputs and edits,
+and derives the matching baseline with an empty log.
+Files from a different model source or Python/NumPy/NetworkX version are rejected
+explicitly: use the recorded implementation to reproduce them. Reproducibility
+is checked by exact trajectory equality in the current environment; this is not
+a promise of bitwise equality across all hardware. Save the JSON before closing
+the page if you want to keep the experiment; there is no automatic disk save.
 
 **Save replay HTML** downloads the current experiment as a self-contained offline
-replay. Playback, node selection, and comparisons remain interactive; new model
+replay, including both comparison trajectories, its intervention log, and experiment
+JSON download. Playback,
+node selection, and comparisons remain interactive; new interventions and model
 settings require the local Python app. Alternatively, generate a replay from the
 command line (existing files are never overwritten):
 
@@ -63,6 +152,7 @@ command line (existing files are never overwritten):
 # Optional request JSON: {"config": {"rounds": 200}, "distribution": "uniform",
 #                         "topologies": ["barabasi_albert", "regular"]}
 .venv/bin/python -m bayes_cash.explorer --export outputs/custom-replay.html --config request.json
+# A saved experiment JSON can also be passed to --config to reproduce its run.
 ```
 
 The repository includes `outputs/belief-observatory.html` as a ready-to-open
@@ -72,10 +162,14 @@ snapshot. The editable interface lives in `src/bayes_cash/web/explorer.html`.
 Viewer defaults use 24 agents, 160 rounds, and opponent probability 0.2 for a
 responsive preview. The batch model defaults remain unchanged. Limits are
 4–100 agents, 1–1000 rounds,
-5–51 grid points, and four million exported belief and relationship values combined.
-Relationship histories count toward this limit when payment-dependent loyalty is enabled.
-Up to 501 display
-states include the initial and final states; all model rounds are computed.
+5–51 grid points, and four million exported belief, relationship, and cash-adjustment
+values combined. Both trajectories count toward this limit when interventions
+are logged; an empty-log run stores one trajectory for the two identical views.
+Relationship histories count toward this limit when payment-dependent loyalty
+or connection interventions are enabled in the corresponding trajectory.
+Normally up to 501 display states include the initial and final states;
+intervention boundaries additionally retain the states immediately before and
+after each edit. All model rounds are computed.
 The app shows sampled-frame status and steps through actual saved states without
 interpolating. Request fewer agents, grid points, rounds, or networks if the
 export-size limit is exceeded.

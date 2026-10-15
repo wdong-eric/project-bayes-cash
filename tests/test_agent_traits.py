@@ -175,7 +175,7 @@ def test_traits_use_separate_random_streams_and_match_between_wealth_arms():
     assert_array_equal(uniform.initial_wealth, baseline.initial_wealth)
     for name in ("giving_preferences", "conditional_allies", "contact_uniforms"):
         assert_array_equal(getattr(uniform, name), getattr(logarithmic, name))
-    assert baseline.contact_uniforms is None
+    assert_array_equal(baseline.contact_uniforms, uniform.contact_uniforms)
     assert set(uniform.giving_preferences) == {-1, 0, 1}
     assert np.any(uniform.conditional_allies & (uniform.giving_preferences != 0))
     no_conditional = make_inputs(replace(config, conditional_ally_fraction=0.0), "uniform")

@@ -38,6 +38,8 @@ def make_sweep_inputs(config, distribution):
     """
     require_static_study(config)
     prefix = make_inputs(replace(config, rounds=min(PREFIX_ROUNDS, config.rounds)), distribution)
+    # This historical study forbids preferential giving, including in continuation.
+    prefix = replace(prefix, contact_uniforms=None)
     extra = config.rounds - prefix.observations.size
     if extra == 0:
         return prefix
@@ -106,6 +108,7 @@ def run_trajectory(config, inputs, mode, horizons, stride=50, chunk_size=500):
         current = replace(
             inputs, initial_beliefs=beliefs, initial_wealth=wealth,
             observations=inputs.observations[start:stop], recipients=inputs.recipients[start:stop],
+            contact_uniforms=inputs.contact_uniforms[start:stop] if inputs.contact_uniforms is not None else None,
         )
         result = simulate(replace(config, rounds=stop - start), current, mode)
         values = sweep_diagnostics(result, inputs.theta, config.true_bias, inputs.relationships)

@@ -25,10 +25,11 @@ def diagnostics(result, theta, true_bias):
     )
     wealth = result.wealth
     n = wealth.shape[1]
-    # The sorted-sample formula includes agents with zero wealth.
-    gini = (
-        np.sort(wealth, axis=1) @ (2 * np.arange(1, n + 1) - n - 1)
-        / (n * wealth.sum(axis=1))
+    # Gini is undefined when external withdrawals leave the entire population with zero cash.
+    total = wealth.sum(axis=1)
+    gini = np.divide(
+        np.sort(wealth, axis=1) @ (2 * np.arange(1, n + 1) - n - 1),
+        n * total, out=np.full(len(wealth), np.nan), where=total > 0,
     )
     return {
         "round": np.arange(len(wealth)),
@@ -37,7 +38,7 @@ def diagnostics(result, theta, true_bias):
         "mean_posterior_sd": np.sqrt(variances).mean(axis=1),
         "belief_mse": (variances + (means - true_bias) ** 2).mean(axis=1),
         "wealth_gini": gini,
-        "wealth_total": wealth.sum(axis=1),
+        "wealth_total": total,
         "wealth_min": wealth.min(axis=1),
         "wealth_median": np.median(wealth, axis=1),
         "wealth_max": wealth.max(axis=1),

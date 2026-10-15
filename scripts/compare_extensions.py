@@ -57,7 +57,8 @@ def run_trajectory(config, inputs, mode, horizons, stride=50, chunk_size=500):
     for start in range(0, config.rounds, chunk_size):
         stop = min(start + chunk_size, config.rounds)
         current = replace(inputs, initial_beliefs=beliefs, initial_wealth=wealth,
-                          observations=inputs.observations[start:stop], recipients=inputs.recipients[start:stop])
+                          observations=inputs.observations[start:stop], recipients=inputs.recipients[start:stop],
+                          contact_uniforms=inputs.contact_uniforms[start:stop] if inputs.contact_uniforms is not None else None)
         result = simulate(replace(config, rounds=stop - start), current, mode)
         values = diagnostics(result, inputs.theta, config.true_bias)
         flips = np.zeros(stop - start + 1)

@@ -26,11 +26,12 @@ finally:
 
 
 @pytest.mark.parametrize("arm", comparison.ARMS)
-def test_chunking_matches_full_simulation_and_income_ledger(arm):
+@pytest.mark.parametrize("prepare", [make_inputs, comparison.make_sweep_inputs], ids=["canonical", "historical"])
+def test_chunking_matches_full_simulation_and_income_ledger(arm, prepare):
     config = comparison.extension_config(
         Config(n_agents=8, attachment=2, rounds=23, opponent_fraction=0.7), arm, 0.1,
     )
-    inputs = comparison.make_sweep_inputs(config, "loguniform")
+    inputs = prepare(config, "loguniform")
     full = simulate(config, inputs, "hybrid")
     chunked = comparison.run_trajectory(config, inputs, "hybrid", (10, 23), stride=3, chunk_size=7)
     expected = diagnostics(full, inputs.theta, config.true_bias)

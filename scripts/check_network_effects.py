@@ -30,6 +30,8 @@ def control_inputs(config, distribution):
     require_static_study(config)
     short_rounds = min(500, config.rounds)
     original = make_inputs(replace(config, rounds=short_rounds), distribution)
+    # Cash-only controls use fixed contacts and forbid preferential giving.
+    original = replace(original, contact_uniforms=None)
     degree = 2 * config.attachment
     if degree >= config.n_agents:
         raise ValueError("random-regular degree 2 * attachment must be less than n_agents")

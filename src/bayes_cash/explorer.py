@@ -4,8 +4,10 @@ import argparse
 from dataclasses import asdict, fields, replace
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib.resources import files
+import hashlib
 import json
 from pathlib import Path
+import platform
 from threading import Lock
 from urllib.parse import urlsplit
 
@@ -13,7 +15,7 @@ import networkx as nx
 import numpy as np
 
 from .experiment import COLORS, LABELS, diagnostics
-from .model import PAYMENT_MODES, Config, make_inputs, simulate
+from .model import PAYMENT_MODES, Config, Intervention, PreparedInputs, make_inputs, simulate
 
 
 TOPOLOGIES = {
@@ -24,14 +26,36 @@ TOPOLOGIES = {
 MODES = (*PAYMENT_MODES, "no_payment")
 DEFAULT_CONFIG = Config(n_agents=24, rounds=160, attachment=2, opponent_fraction=0.2)
 MAX_TRAJECTORY_VALUES = 4_000_000
-MAX_REQUEST_BYTES = 32_768
+MAX_REQUEST_BYTES = 16 * 1024 * 1024
+EXPERIMENT_FORMAT_VERSION = 1
 DATA_MARKER = "/*__EXPLORER_DATA__*/"
+# A running server must identify the implementation it loaded, even after a source edit.
+MODEL_SOURCE_SHA256 = hashlib.sha256(Path(__file__).with_name("model.py").read_bytes()).hexdigest()
+
+
+def model_identity():
+    """Identify the numerical implementation required by a saved experiment."""
+    return {
+        "sha256": MODEL_SOURCE_SHA256,
+        "numpy": np.__version__, "networkx": nx.__version__,
+        "python": platform.python_version(),
+    }
 
 
 def parse_request(payload):
     """Validate browser input and its total trajectory budget before allocating."""
-    if not isinstance(payload, dict) or set(payload) - {"config", "distribution", "topologies"}:
-        raise ValueError("request must contain only config, distribution, and topologies")
+    allowed = {"config", "distribution", "topologies", "interventions",
+               "format_version", "model", "prepared_inputs"}
+    if not isinstance(payload, dict) or set(payload) - allowed:
+        raise ValueError("request must contain only experiment settings, interventions, and saved inputs")
+    if set(payload) & {"format_version", "model", "prepared_inputs"}:
+        if not {"format_version", "model", "prepared_inputs", "config", "distribution",
+                "topologies", "interventions"} <= set(payload):
+            raise ValueError("saved experiment is missing its version, model, settings, inputs, or intervention log")
+        if type(payload["format_version"]) is not int or payload["format_version"] != EXPERIMENT_FORMAT_VERSION:
+            raise ValueError("unsupported experiment format_version")
+        if payload["model"] != model_identity():
+            raise ValueError("saved experiment model or dependency version differs; use the original implementation to reproduce it")
     overrides = payload.get("config", {})
     if not isinstance(overrides, dict) or set(overrides) - {field.name for field in fields(Config)}:
         raise ValueError("config contains unknown fields or is not an object")
@@ -54,19 +78,80 @@ def parse_request(payload):
         raise ValueError("grid_size must be between 5 and 51")
     if "regular" in topologies and 2 * config.attachment >= config.n_agents:
         raise ValueError("random-regular degree 2 * attachment must be less than n_agents")
-    frame_count = min(config.rounds + 1, 501)
-    belief_values = frame_count * config.n_agents * config.grid_size * len(MODES) * len(topologies)
-    relationship_values = (
-        frame_count * config.n_agents ** 2 * len(MODES) * len(topologies)
-        if config.conditional_ally_fraction > 0 else 0
+    raw_events = payload.get("interventions", [])
+    if not isinstance(raw_events, list) or len(raw_events) > 1000:
+        raise ValueError("interventions must be a list of at most 1000 changes")
+    event_fields = {field.name for field in fields(Intervention)}
+    interventions = []
+    for event in raw_events:
+        if not isinstance(event, dict) or set(event) - event_fields or not {"agent", "round"} <= set(event):
+            raise ValueError("each intervention requires agent, round, and supported behavior settings")
+        change = Intervention(**event)
+        if (change.agent >= config.n_agents or change.round > config.rounds
+            or change.neighbor is not None and change.neighbor >= config.n_agents):
+            raise ValueError("intervention agent or round is outside this experiment")
+        interventions.append(change)
+    frame_count = len(display_frames(config, interventions))
+    comparison_count = 2 if interventions else 1
+    belief_values = (
+        frame_count * config.n_agents * config.grid_size * len(MODES) * len(topologies) * comparison_count
     )
-    if belief_values + relationship_values > MAX_TRAJECTORY_VALUES:
+    initial_dynamic = config.conditional_ally_fraction > 0
+    intervention_dynamic = any(event.conditional_ally or event.connection is not None for event in interventions)
+    relationship_values = frame_count * config.n_agents ** 2 * len(MODES) * len(topologies) * (
+        int(initial_dynamic or intervention_dynamic) + int(bool(interventions) and initial_dynamic)
+    )
+    cash_values = frame_count * config.n_agents * len(MODES) * len(topologies) * comparison_count
+    if belief_values + relationship_values + cash_values > MAX_TRAJECTORY_VALUES:
         raise ValueError(
-            f"requested {belief_values:,} belief values and {relationship_values:,} relationship values "
-            f"exceeds the {MAX_TRAJECTORY_VALUES:,} total limit; "
+            f"requested {belief_values:,} belief values, {relationship_values:,} relationship values, "
+            f"and {cash_values:,} cash adjustment values "
+            f"exceeds the {MAX_TRAJECTORY_VALUES:,} total limit"
+            f"{' including the baseline comparison' if interventions else ''}; "
             "reduce agents, rounds, grid size, or networks"
         )
-    return config, distribution, topologies
+    return config, distribution, topologies, interventions
+
+
+def display_frames(config, interventions):
+    """Keep intervention boundaries exact even when the rest is downsampled."""
+    return np.unique(np.r_[
+        np.linspace(0, config.rounds, min(config.rounds + 1, 501), dtype=int),
+        np.array([t for event in interventions for t in (event.round - 1, event.round)], dtype=int),
+    ])
+
+
+def restore_inputs(saved, config, distribution, topologies):
+    """Read exact recorded inputs through the model's domain validation."""
+    if not isinstance(saved, dict) or set(saved) != set(topologies):
+        raise ValueError("saved prepared_inputs must match the selected topologies")
+    names = {field.name for field in fields(PreparedInputs)}
+    prepared = {}
+    for topology in topologies:
+        values = saved[topology]
+        if not isinstance(values, dict) or set(values) != names:
+            raise ValueError("saved prepared_inputs contains missing or unknown fields")
+        current = PreparedInputs(**{
+            name: value if name == "wealth_distribution" or value is None else np.asarray(value)
+            for name, value in values.items()
+        })
+        if (current.initial_wealth.size != config.n_agents
+            or current.theta.size != config.grid_size
+            or current.observations.size != config.rounds
+            or current.wealth_distribution != distribution):
+            raise ValueError("saved inputs do not match the experiment dimensions or wealth distribution")
+        if current.contact_uniforms is None or current.giving_preferences is None or current.conditional_allies is None:
+            raise ValueError("saved experiments require complete agent traits and contact randomness")
+        if not np.array_equal(current.theta, np.linspace(0, 1, config.grid_size)):
+            raise ValueError("saved theta must match the experiment's equally spaced grid")
+        if prepared:
+            first = next(iter(prepared.values()))
+            for name in ("theta", "initial_beliefs", "initial_wealth", "observations",
+                         "giving_preferences", "conditional_allies"):
+                if not np.array_equal(getattr(current, name), getattr(first, name)):
+                    raise ValueError(f"saved networks must share {name}")
+        prepared[topology] = current
+    return prepared
 
 
 def make_network_inputs(config, distribution, topologies):
@@ -115,21 +200,53 @@ def make_network_inputs(config, distribution, topologies):
             )
         prepared[topology] = replace(
             original, adjacency=adjacency, relationships=relationships, recipients=recipients,
-            contact_uniforms=(
-                preference_rng.random((config.rounds, config.n_agents))
-                if config.ally_giver_fraction + config.opponent_giver_fraction > 0 else None
-            ),
+            contact_uniforms=preference_rng.random((config.rounds, config.n_agents)),
         )
     return prepared
 
 
 def simulation_payload(payload):
     """Compute all rounds, then sample display frames without interpolating PMFs."""
-    config, distribution, topologies = parse_request(payload)
-    frames = np.linspace(0, config.rounds, min(config.rounds + 1, 501), dtype=int)
-    prepared = make_network_inputs(config, distribution, topologies)
+    config, distribution, topologies, interventions = parse_request(payload)
+    frames = display_frames(config, interventions)
+    prepared = (
+        restore_inputs(payload["prepared_inputs"], config, distribution, topologies)
+        if "prepared_inputs" in payload else make_network_inputs(config, distribution, topologies)
+    )
+    initial_dynamic_networks = sum(bool(np.any(inputs.conditional_allies)) for inputs in prepared.values())
+    dynamic_networks = sum(
+        bool(np.any(inputs.conditional_allies)
+             or any(event.conditional_ally or event.connection is not None for event in interventions))
+        for inputs in prepared.values()
+    )
+    if interventions:
+        dynamic_networks += initial_dynamic_networks
+    total_values = len(frames) * len(MODES) * (
+        config.n_agents * (config.grid_size + 1) * len(topologies) * (2 if interventions else 1)
+        + config.n_agents ** 2 * dynamic_networks
+    )
+    if total_values > MAX_TRAJECTORY_VALUES:
+        raise ValueError(
+            "prepared input relationship histories"
+            f"{' and baseline comparison' if interventions else ''} "
+            "exceed the total trajectory limit; reduce experiment size"
+        )
     first = next(iter(prepared.values()))
+    experiment = {
+        "format_version": EXPERIMENT_FORMAT_VERSION, "model": model_identity(),
+        "config": asdict(config), "distribution": distribution, "topologies": topologies,
+        "interventions": [
+            {name: value for name, value in asdict(event).items() if value is not None}
+            for event in interventions
+        ],
+        "prepared_inputs": {
+            topology: {name: value.tolist() if isinstance(value, np.ndarray) else value
+                       for name, value in vars(inputs).items()}
+            for topology, inputs in prepared.items()
+        },
+    }
     response = {
+        "experiment": experiment,
         "config": asdict(config), "distribution": distribution,
         "theta": first.theta.tolist(), "observations": first.observations.astype(int).tolist(),
         "giving_preferences": first.giving_preferences.tolist(),
@@ -144,18 +261,23 @@ def simulation_payload(payload):
                 "rounds": "Frame t is the state after t updates. At t>0 its payment/contact arrays contain ledger index t-1, the update producing that state; frame 0 has zero payments and no contacts. Sampled frames retain actual states, not averages or interpolation.",
                 "evidence": "One shared Bernoulli outcome per round when enabled, before social influence and cash settlement.",
                 "pairing": "Identical priors, initial wealth, agent traits, and public observations across networks; initial signs and contact randomness shared across payment modes within each network. Realized contacts can diverge as loyalty changes.",
-                "topologies": "BA attachment m; connected random regular degree 2m; complete. These also change degree-dependent self-weight. BA and regular mean degrees are close but unequal.",
+                "baseline": "For each network and payment rule, the baseline uses the identical prepared initial state, observations, and contact random arrays with an empty intervention log. Both trajectories use the same display frames, including intervention boundaries. Realized contacts may diverge after an intervention. With no interventions, the current scenarios are also the baseline and duplicate arrays are omitted. Baselines are derived from saved inputs, not separately stored in experiment JSON.",
+                "topologies": "Initial families: BA attachment m; connected random regular degree 2m; complete. Connection interventions subsequently change adjacency and degree-dependent self-weight. BA and regular initial mean degrees are unequal and their densities can differ substantially. Isolated agents observe evidence and receive configured income but have no contacts.",
                 "randomness": "BA exactly uses make_inputs at the requested horizon; other graphs use independent graph/contact/sign streams. Changing rounds can change contacts; no prefix-stable claim.",
                 "scope": "New exploratory full-belief runs. Non-BA trajectories do not replay the earlier cash-only network controls; a single seed is not an ensemble conclusion.",
-                "cash": "Nominal arbitrary units. Income equals income_rate times opening wealth; income and transfers settle together. Positive income also caps each requested payment at that round's income.",
+                "cash": "Nominal arbitrary units. Cash interventions are external injections or withdrawals before the numbered update, not transfers. Income equals income_rate times opening wealth after those changes; income and transfers settle together. Positive income also caps each requested payment at that round's income. Overdrafts are rejected, not clipped. Total cash change equals external adjustments plus income. Wealth Gini is undefined (null) when total cash is zero.",
                 "payments": "Uniform givers sample a neighbor. Preferential givers choose an ally/opponent group using preference_probability and sample uniformly within it; normalize over available groups with positive probability. No eligible group means no contact (recipient -1) and no payment. Opening-round recipient receptivity determines the group. Pay only affordable requests; hybrid requests max(fixed, fraction times opening wealth).",
                 "loyalty": "Independent recipient trait. relationships[payer][recipient] is the recipient's receptivity to that payer. Initial sampled signs and zero unpaid counters; positive actual payments immediately set ally and reset that pair's counter. After loyalty_rounds consecutive unpaid simulation rounds, set opponent before influence. Reverse and other-payer relations are independent. Scenario relationship frames are states after the displayed round; static runs use initial edges.",
                 "influence": "Self-weight is degree times reference_payment times (1-social_rate)/social_rate. Negative pooling uses the model's positive-part projection and renormalization, which can erase support.",
-                "opponents": "Network lines show initial symmetric edge signs; conditional recipients can change directed signs later. Attenuation: current opponents have negative weight -reference_payment/(1+payment/reference_payment), including unpaid contacts. Tanh: recipient opening wealth times tanh(payment/wealth - opponent_threshold), with zero ally threshold and zero weight at zero recipient wealth; effective signs can change.",
+                "opponents": "Network lines show current connections. Ally, opponent, and mixed directed stances have distinct encodings; the relationship table reports each direction. Attenuation: current opponents have negative weight -reference_payment/(1+payment/reference_payment), including unpaid contacts. Tanh: recipient opening wealth times tanh(payment/wealth - opponent_threshold), with zero ally threshold and zero weight at zero recipient wealth; effective signs can change.",
                 "no_payment": "fixed_payment=0 with all other settings retained. Opponents can still repel and configured income is still injected; this is not a social-off control.",
+                "interventions": "Changes apply before the numbered update's evidence, contacts, income, and payments, across all networks and payment rules. Earlier states are unchanged. Equal-round changes use log order: trait assignments persist, cash deltas add once, and belief blends compose once. Enabling payment dependence starts fresh unpaid clocks; disabling keeps current relationships. Re-enabling starts fresh clocks again. Repeating an enabled setting preserves clocks. Belief edits blend the current PMF with a Gaussian target normalized by a sum on theta; its center and width are Gaussian input parameters, not the achieved discrete mean and SD. Setting a connection assigns both directed signs and resets that pair's unpaid clocks, including for an existing edge; removing it clears both directions. Uniform givers retain their original scheduled recipient when their neighbor set matches its initial state; otherwise stored contact uniforms choose among sorted current neighbors. Saved experiment JSON records exact initial inputs, random draws, ordered changes, and model/dependency identity.",
             },
         },
     }
+    scenario_logs = {"scenarios": interventions}
+    if interventions:
+        scenario_logs["baseline_scenarios"] = ()
     layout_seed = int(np.random.default_rng(np.random.SeedSequence([config.seed, 73665])).integers(0, 2**31))
     for topology, inputs in prepared.items():
         graph = nx.from_numpy_array(inputs.adjacency)
@@ -171,24 +293,37 @@ def simulation_payload(payload):
             "edges": np.column_stack((edge_i, edge_j, inputs.relationships[edge_i, edge_j])).tolist(),
             "degrees": inputs.adjacency.sum(axis=1).tolist(),
             "realized_opponent_fraction": float(np.mean(inputs.relationships[edge_i, edge_j] < 0)),
-            "scenarios": {},
         }
-        for mode in MODES:
-            result = (
-                simulate(replace(config, fixed_payment=0.0), inputs, "fixed")
-                if mode == "no_payment" else simulate(config, inputs, mode)
-            )
-            metrics = diagnostics(result, inputs.theta, config.true_bias)
-            metrics["total_income"] = np.r_[0.0, config.income_rate * metrics["wealth_total"][:-1]]
-            network["scenarios"][mode] = {
-                "beliefs": result.beliefs[frames].tolist(),
-                "wealth": result.wealth[frames].tolist(),
-                "payments": [np.zeros(config.n_agents).tolist()] + result.payments[frames[1:] - 1].tolist(),
-                "recipients": [[]] + result.recipients[frames[1:] - 1].tolist(),
-                "metrics": {key: values[frames].tolist() for key, values in metrics.items()},
-            }
-            if config.conditional_ally_fraction > 0:
-                network["scenarios"][mode]["relationships"] = result.relationships[frames].tolist()
+        for scenario_key, changes in scenario_logs.items():
+            network[scenario_key] = {}
+            for mode in MODES:
+                try:
+                    result = (
+                        simulate(replace(config, fixed_payment=0.0), inputs, "fixed", interventions=changes)
+                        if mode == "no_payment" else simulate(config, inputs, mode, interventions=changes)
+                    )
+                except ValueError as exc:
+                    comparison = " / baseline without interventions" if scenario_key == "baseline_scenarios" else ""
+                    raise ValueError(f"{TOPOLOGIES[topology]} / {LABELS[mode]}{comparison}: {exc}") from exc
+                metrics = diagnostics(result, inputs.theta, config.true_bias)
+                external_cash = result.external_cash.sum(axis=1)
+                metrics["total_external_cash"] = np.r_[0.0, external_cash]
+                metrics["cumulative_external_cash"] = np.cumsum(metrics["total_external_cash"])
+                metrics["total_income"] = np.r_[0.0, config.income_rate * (metrics["wealth_total"][:-1] + external_cash)]
+                network[scenario_key][mode] = {
+                    "beliefs": result.beliefs[frames].tolist(),
+                    "wealth": result.wealth[frames].tolist(),
+                    "payments": [np.zeros(config.n_agents).tolist()] + result.payments[frames[1:] - 1].tolist(),
+                    "recipients": [[]] + result.recipients[frames[1:] - 1].tolist(),
+                    "external_cash": [np.zeros(config.n_agents).tolist()] + result.external_cash[frames[1:] - 1].tolist(),
+                    "metrics": {
+                        key: [None if np.isnan(value) else value for value in values[frames].tolist()]
+                        if key == "wealth_gini" else values[frames].tolist()
+                        for key, values in metrics.items()
+                    },
+                }
+                if np.any(inputs.conditional_allies) or any(event.conditional_ally or event.connection is not None for event in changes):
+                    network[scenario_key][mode]["relationships"] = result.relationships[frames].tolist()
         response["topologies"].append(network)
     return response
 
@@ -317,7 +452,7 @@ def main():
     )
     parser.add_argument(
         "--config", type=Path, metavar="JSON",
-        help="Settings for --export: config overrides, distribution, and topologies (otherwise viewer defaults)",
+        help="Request settings or a saved experiment JSON, including interventions, for --export",
     )
     args = parser.parse_args()
     if args.config and not args.export:

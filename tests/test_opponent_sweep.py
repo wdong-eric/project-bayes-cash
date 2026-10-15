@@ -56,9 +56,10 @@ def test_sweep_masks_are_nested_and_leave_external_inputs_identical():
 
 
 @pytest.mark.parametrize("mode", PAYMENT_MODES)
-def test_chunks_reproduce_full_simulation_and_exact_late_round_selection(mode):
+@pytest.mark.parametrize("prepare", [make_inputs, sweep.make_sweep_inputs], ids=["canonical", "historical"])
+def test_chunks_reproduce_full_simulation_and_exact_late_round_selection(mode, prepare):
     config = Config(n_agents=8, attachment=2, rounds=24, opponent_fraction=0.5)
-    inputs = sweep.make_sweep_inputs(config, "loguniform")
+    inputs = prepare(config, "loguniform")
     full = simulate(config, inputs, mode)
     expected = sweep.sweep_diagnostics(full, inputs.theta, config.true_bias, inputs.relationships)
     actual = sweep.run_trajectory(config, inputs, mode, horizons=(5, 24), stride=7, chunk_size=5)
