@@ -183,6 +183,76 @@ networks are new full-belief exploratory runs, extending the earlier cash-only
 controls. Changing the horizon can change earlier contacts, so hold both seed and
 horizon fixed for comparisons. A single realization is not an ensemble result.
 
+### Belief Preservation Lab
+
+Click **Belief Preservation Lab** in the observatory header, or open
+`http://127.0.0.1:8765/strategy.html` while the same local server is running.
+The original offline demonstration also links to this local page. This separate
+experiment starts with a complete network and every pair mutually opposed.
+Choose one payment rule per run; the existing observatory remains available for
+multi-network and multi-rule comparisons.
+
+The initial belief distribution is hierarchical. **Uniform** places the agents'
+Gaussian centers evenly across `[0, 1]`; **Gaussian mixture** supports one to
+three components with editable means, variances, and relative weights. Centers
+are stratified across the bounded population distribution and assigned to agent
+IDs by a seeded shuffle. A separate, shared **within-agent variance** controls
+each agent's own Gaussian PMF on the theta grid. Gaussian input parameters are
+not necessarily the achieved mean and variance after bounding and discretizing.
+The mixture is conditioned on `[0, 1]`, so truncation can also change its effective
+component proportions. Initial centers and exact PMFs are saved with the run.
+
+Relationships are mutual and persistent. For an ordinary recipient, a positive
+tanh influence creates a mutual alliance; equality at the opponent threshold
+is neutral and does not flip a pair. The existing payment-dependent recipient
+trait still accepts any positive payment as allied influence and creates a
+mutual alliance. Once allied, a pair stays allied until a manual relationship
+intervention changes it. **Unpaid rounds before defection** is retained as an
+inactive setting: it cannot override strict persistence. Contact selection uses
+opening relationships; both directions' influence is evaluated from the same
+snapshot, then qualifying flips are committed together. A reverse contact in
+the same round cannot borrow the other's newly acquired ally status. At zero
+recipient cash the tanh influence is zero. Self-weight still scales with the
+complete-network degree, `N - 1`, as in the existing model.
+
+The two proposed spending mechanisms are visible, editable, and saved, but
+**inactive in this first version**. The proposed incitation rule would burn a
+fixed cost paid by A to turn an allied B–C pair into opponents, without transferring
+the money to an agent. The proposed self-reinforcement rule would burn `s`, set
+`alpha = 1 - exp(-s / reinforcement_scale)`, and blend
+`p_new = (1 - alpha) * p_current + alpha * p_initial`. Changing these cost controls
+currently has no effect on trajectories or cash. There are no automatic actions
+or paid-action intervention entries for these proposals yet.
+
+Manual interventions remain active: change giving preference or payment
+dependence, add or withdraw external cash, blend once toward a specified Gaussian
+PMF, or set a mutual ally/opponent relationship. Connection removal is excluded
+so the graph remains complete. The same timing convention applies: edits occur
+before their one-based update round, and equal-round edits execute in log order.
+Normal payments later in that round can recreate an alliance after a manual
+opponent assignment. Both baseline and edited runs share the exact prepared
+inputs; only the latter receives the intervention log. Ordinary payments transfer
+money, and total cash changes only through logged external cash adjustments.
+
+**Save intervention log** saves just the ordered log as JSON. Loading it replaces the
+current log and replays it against the current experiment's saved inputs; a log
+alone does not fix initial conditions or randomness. **Save experiment JSON**
+preserves both. **Save replay HTML** produces a portable, interactive playback;
+editing and loading require the local server. The CLI export also accepts a
+preservation request with `"kind": "belief-preservation"`, or its saved experiment.
+Source/dependency identity is checked separately from the original observatory.
+
+The preservation metric is total-variation distance from each agent's initial
+PMF: `D_i(t) = 0.5 * sum_k |p_i(t,k) - p_i(0,k)|`. Zero means unchanged; the
+maximum is one. The page shows the selected agent's initial, current, and
+baseline PMFs and its distance history. This measures preservation, not accuracy
+relative to the true coin bias. Public evidence remains enabled by default;
+switch it off explicitly for a social-only experiment. Random contacts provide
+a first background policy, not a search over optimal policies. A useful next
+experiment would minimize time-averaged distance under a fixed spending budget,
+compare candidate actions with identical random inputs, then evaluate them on
+fresh seeds before making a strategy claim.
+
 ### Batch experiments
 
 ```bash

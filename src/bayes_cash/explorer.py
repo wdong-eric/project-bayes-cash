@@ -328,9 +328,9 @@ def simulation_payload(payload):
     return response
 
 
-def render_html(data=None):
+def render_html(data=None, *, template_name="explorer.html"):
     """Embed replay data without allowing JSON text to close its script element."""
-    template = files("bayes_cash").joinpath("web/explorer.html").read_text(encoding="utf-8")
+    template = files("bayes_cash").joinpath(f"web/{template_name}").read_text(encoding="utf-8")
     if data is None:
         return template
     serialized = json.dumps(data, allow_nan=False, separators=(",", ":"))
@@ -345,7 +345,13 @@ def export_html(destination, payload=None):
     destination = Path(destination)
     if destination.exists():
         raise FileExistsError(f"Refusing to overwrite {destination}; choose a new --export path.")
-    html = render_html(simulation_payload({} if payload is None else payload))
+    payload = {} if payload is None else payload
+    if isinstance(payload, dict) and payload.get("kind") == "belief-preservation":
+        from .strategy_explorer import simulation_payload as strategy_payload
+
+        html = render_html(strategy_payload(payload), template_name="strategy.html")
+    else:
+        html = render_html(simulation_payload(payload))
     with destination.open("x", encoding="utf-8") as stream:
         stream.write(html)
     return destination
@@ -389,15 +395,17 @@ class ExplorerHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         if not self.valid_host():
             return
-        if urlsplit(self.path).path not in ("/", "/index.html"):
+        path = urlsplit(self.path).path
+        if path not in ("/", "/index.html", "/strategy.html"):
             self.error(404, "Not found")
             return
-        self.reply(200, render_html(), "text/html; charset=utf-8")
+        template_name = "strategy.html" if path == "/strategy.html" else "explorer.html"
+        self.reply(200, render_html(template_name=template_name), "text/html; charset=utf-8")
 
     def do_POST(self):
         if not self.valid_host():
             return
-        if self.path != "/api/simulate":
+        if self.path not in ("/api/simulate", "/api/strategy/simulate"):
             self.error(404, "Not found")
             return
         if self.headers.get_content_type() != "application/json":
@@ -419,7 +427,12 @@ class ExplorerHandler(BaseHTTPRequestHandler):
             return
         try:
             payload = json.loads(self.rfile.read(length))
-            result = simulation_payload(payload)
+            if self.path == "/api/strategy/simulate":
+                from .strategy_explorer import simulation_payload as strategy_payload
+
+                result = strategy_payload(payload)
+            else:
+                result = simulation_payload(payload)
             self.reply(200, json.dumps(result, allow_nan=False, separators=(",", ":")))
         except (ValueError, TypeError, OverflowError) as exc:
             self.error(400, str(exc))
