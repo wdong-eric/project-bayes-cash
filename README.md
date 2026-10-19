@@ -202,18 +202,55 @@ not necessarily the achieved mean and variance after bounding and discretizing.
 The mixture is conditioned on `[0, 1]`, so truncation can also change its effective
 component proportions. Initial centers and exact PMFs are saved with the run.
 
-Relationships are mutual and persistent. For an ordinary recipient, a positive
-tanh influence creates a mutual alliance; equality at the opponent threshold
-is neutral and does not flip a pair. The existing payment-dependent recipient
-trait still accepts any positive payment as allied influence and creates a
-mutual alliance. Once allied, a pair stays allied until a manual relationship
-intervention changes it. **Unpaid rounds before defection** is retained as an
-inactive setting: it cannot override strict persistence. Contact selection uses
-opening relationships; both directions' influence is evaluated from the same
-snapshot, then qualifying flips are committed together. A reverse contact in
-the same round cannot borrow the other's newly acquired ally status. At zero
-recipient cash the tanh influence is zero. Self-weight still scales with the
-complete-network degree, `N - 1`, as in the existing model.
+Recipient types and payment strategies are separate controls. The three recipient
+types are disjoint seeded draws: ordinary, **payment-dependent**, and **junzi**
+(gentleman). The two configured fractions are sampling probabilities, so finite
+populations need not contain exactly those proportions; the remainder is ordinary.
+
+The model stores two relationship layers:
+
+- **Persistent mutual signs:** a positive raw wealth-scaled tanh influence on an
+  opponent pair creates a mutual alliance after simultaneous belief pooling.
+  This test uses the opening base signs, before applying paid loyalty. Equality
+  at the threshold is neutral. Once created, a base alliance persists until a
+  manual sign assignment changes it (incitation remains inactive).
+- **Effective directed responses:** ordinary recipients use the base sign.
+  Payment-dependent recipients become allied toward each payer on any positive
+  actual payment and reset that pair's unpaid clock. On the configured consecutive
+  unpaid round, they become opposed before pooling, even if the base alliance
+  remains. Rounds without contact also count as unpaid. Junzi ignore all incoming
+  social influence and payment-driven sign changes, while public evidence and
+  manual edits still apply. No payment can create a mutual base alliance on a pair
+  involving a junzi. They may still give/receive cash and influence other people.
+
+An entry `[j, i]` means **recipient i's response to payer j**. Effective signs
+can therefore be asymmetric, while persistent base signs remain symmetric. The
+network distinguishes mutual allies, mutual opponents, and mixed responses; the
+relationship table shows both layers and both directions. At zero recipient cash,
+tanh influence is zero, although a positive payment can still establish temporary
+paid loyalty. Newly committed base signs cannot alter reverse same-round influence.
+
+Choose among four recipient strategies, globally or through an individual behavior
+intervention: **random one**, **all others**, **farthest**, or **farthest + random
+other**. Farthest compares the payer's and recipient's current post-evidence PMFs
+using Wasserstein-2; exact ties choose the lowest agent ID. The extra random
+recipient is distinct from the payer and the farthest recipient. The amount rule
+(fixed, fractional, hybrid, or zero) defines one **total budget per payer per round**,
+which is split equally among selected recipients. Unaffordable total requests are
+skipped. All strategies exclude self-payment and use simultaneous opening cash.
+Saved uniforms drive random selections. Zero-payment contacts still occur and can
+repel, so strategies differ in interaction count as well as money allocation.
+
+The self-weight `a = (N - 1) * reference_payment * (1 - social_rate) / social_rate`
+is inertia toward the agent's current post-evidence PMF, not actual spending or an
+anchor to its original belief. The signed update before positive-part projection is
+`z_i = q_i + sum_j w_ji * (q_j - q_i) / (a + sum_j abs(w_ji))`.
+For entirely positive influences, the denominator normalizes a weighted average;
+it sets self-influence relative to total incoming influence. With negative weights,
+the same denominator limits the step scale, then negative PMF entries are set to
+zero and the remaining masses normalized. The social-rate calibration gives a
+self-share of `1 - social_rate` only if all `N - 1` neighbors contribute the
+reference influence. It is not generally the realized mixing fraction.
 
 The two proposed spending mechanisms are visible, editable, and saved, but
 **inactive in this first version**. The proposed incitation rule would burn a
@@ -224,34 +261,53 @@ the money to an agent. The proposed self-reinforcement rule would burn `s`, set
 currently has no effect on trajectories or cash. There are no automatic actions
 or paid-action intervention entries for these proposals yet.
 
-Manual interventions remain active: change giving preference or payment
-dependence, add or withdraw external cash, blend once toward a specified Gaussian
-PMF, or set a mutual ally/opponent relationship. Connection removal is excluded
-so the graph remains complete. The same timing convention applies: edits occur
-before their one-based update round, and equal-round edits execute in log order.
-Normal payments later in that round can recreate an alliance after a manual
-opponent assignment. Both baseline and edited runs share the exact prepared
-inputs; only the latter receives the intervention log. Ordinary payments transfer
-money, and total cash changes only through logged external cash adjustments.
+Manual interventions remain active: change recipient type or payment strategy,
+add or withdraw external cash, blend once toward a specified Gaussian PMF, or set
+a mutual ally/opponent relationship. Entering payment dependence starts fresh
+clocks from current responses; entering junzi freezes current responses; returning
+to ordinary resumes the base signs. Reapplying an unchanged type does not reset
+its clocks. A mutual sign edit changes both base and effective signs and resets
+the pair's clocks. Connection removal is excluded so the graph stays complete.
+Edits occur before their one-based update, in log order for ties. Payments or
+loyalty expiry later in that round may change the edited responses again. Baseline
+and edited runs share exact inputs; only the latter receives interventions.
+Payments transfer money; total cash changes only through external adjustments.
 
-**Save intervention log** saves just the ordered log as JSON. Loading it replaces the
-current log and replays it against the current experiment's saved inputs; a log
-alone does not fix initial conditions or randomness. **Save experiment JSON**
-preserves both. **Save replay HTML** produces a portable, interactive playback;
-editing and loading require the local server. The CLI export also accepts a
-preservation request with `"kind": "belief-preservation"`, or its saved experiment.
-Source/dependency identity is checked separately from the original observatory.
+**Save intervention log** saves only the ordered log as JSON. Loading it replaces
+the current log and replays against this experiment's saved inputs. **Save experiment
+JSON** also preserves initial PMFs, person types, evidence, and selection randomness.
+**Save replay HTML** produces portable interactive playback; editing and loading
+require the local server. CLI export accepts `"kind": "belief-preservation"` or its
+saved experiment. Lab experiments and logs now use **format version 2**; version-1
+files require the original implementation at commit `24633b9`, because their
+relationship semantics differ. Source/dependency identity is checked separately
+from the original observatory, whose model is unchanged.
 
-The preservation metric is total-variation distance from each agent's initial
-PMF: `D_i(t) = 0.5 * sum_k |p_i(t,k) - p_i(0,k)|`. Zero means unchanged; the
-maximum is one. The page shows the selected agent's initial, current, and
-baseline PMFs and its distance history. This measures preservation, not accuracy
-relative to the true coin bias. Public evidence remains enabled by default;
-switch it off explicitly for a social-only experiment. Random contacts provide
-a first background policy, not a search over optimal policies. A useful next
-experiment would minimize time-averaged distance under a fixed spending budget,
-compare candidate actions with identical random inputs, then evaluate them on
-fresh seeds before making a strategy claim.
+The preservation metric is **Wasserstein-2 distance** from each agent's initial
+PMF. Let `Q_p(u) = inf {theta: F_p(theta) >= u}` be the quantile function of a PMF
+for `0 < u <= 1`. Then
+`W_2(p, q) = sqrt(integral_0^1 [Q_p(u) - Q_q(u)]^2 du)`, and the preservation
+score is `D_i(t) = W_2(p_i(t), p_i(0))`. For discrete PMFs, match probability mass
+in increasing theta order, sum each matched mass times its squared displacement,
+and take the square root. This evaluates the quantile integral exactly on the
+specified grid.
+
+Wasserstein-2 is the minimum root-mean-square displacement required to transport
+one PMF into the other. It has theta units and lies in `[0, 1]` on this domain;
+zero means identical PMFs. For example, changing a point mass at `0.2` to a
+mixture with mass `0.75` at `0.2` and mass `0.25` at `0.6` gives
+`sqrt(0.25 * (0.6 - 0.2)^2) = 0.2`. The page shows each agent's full PMF and
+distance history, plus the population mean distance. Both preservation and
+farthest-recipient selection use Wasserstein-2: target selection compares two
+agents' current PMFs, while preservation compares an agent against its own
+original PMF.
+
+This measures preservation, not accuracy about the true bias. Public evidence
+remains enabled by default; switch it off for a social-only experiment. These
+strategies are candidate policies, not an optimal-strategy search. A useful next
+experiment would minimize time-averaged Wasserstein-2 distance under a fixed total
+budget, vary one focal agent's strategy against random background agents, and
+compare paired seeds before evaluating on fresh seeds.
 
 ### Batch experiments
 

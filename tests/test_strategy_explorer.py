@@ -31,7 +31,7 @@ def test_initialization_and_saved_experiment_reproduce_every_value(small_request
 def test_separate_log_replay_pairs_inputs_and_preserves_prefix(small_request):
     original = strategy_explorer.simulation_payload(small_request)
     saved = original["experiment"]
-    log = {"kind": "belief-preservation-interventions", "format_version": 1,
+    log = {"kind": "belief-preservation-interventions", "format_version": 2,
            "interventions": [{"agent": 0, "round": 4, "cash_delta": 10},
                              {"agent": 1, "round": 5, "neighbor": 2, "connection": 1}]}
     edited = strategy_explorer.simulation_payload({**saved, "interventions": log["interventions"]})
@@ -43,15 +43,56 @@ def test_separate_log_replay_pairs_inputs_and_preserves_prefix(small_request):
     assert strategy_explorer.simulation_payload(edited["experiment"]) == edited
 
 
-def test_saved_inactive_costs_and_loyalty_duration_do_not_change_dynamics(small_request):
+def test_saved_inactive_costs_do_not_change_dynamics(small_request):
     first = strategy_explorer.simulation_payload(small_request)
     changed = deepcopy(first["experiment"])
     changed["settings"].update(incitation_cost=123, reinforcement_scale=456)
-    changed["config"]["loyalty_rounds"] = 99
     second = strategy_explorer.simulation_payload(changed)
     assert second["scenario"] == first["scenario"]
     assert second["metadata"]["spending_mechanisms"] == "inactive"
     assert second["settings"]["incitation_cost"] == 123
+
+
+@pytest.mark.parametrize("strategy,count", [("random_one", 1), ("all", 5), ("farthest", 1), ("farthest_random", 2)])
+def test_payment_strategies_export_all_transfers_and_replay_exactly(small_request, strategy, count):
+    request = deepcopy(small_request)
+    request["config"]["conditional_ally_fraction"] = 0.3
+    request["settings"] = {"payment_strategy": strategy, "junzi_fraction": 0.3}
+    result = strategy_explorer.simulation_payload(request)
+    scenario = result["scenario"]
+    contacts, transfers = np.asarray(scenario["contacts"]), np.asarray(scenario["transfers"])
+    assert_array_equal(contacts[1:].sum(axis=2), np.full((8, 6), count))
+    assert not contacts[:, np.arange(6), np.arange(6)].any()
+    assert_allclose(transfers.sum(axis=2), scenario["payments"])
+    assert_allclose(transfers[1:].sum(axis=2), np.asarray(scenario["wealth"])[:-1] * 0.05)
+    assert_allclose(scenario["metrics"]["wealth_total"], np.sum(scenario["wealth"][0]))
+    assert "recipients" not in scenario
+    assert result["metadata"]["unpaid_defection"] == "active"
+    assert strategy_explorer.simulation_payload(json.loads(json.dumps(result["experiment"]))) == result
+
+
+def test_type_and_strategy_edits_preserve_prefix_and_distance_is_wasserstein(small_request):
+    request = deepcopy(small_request)
+    request["settings"] = {"junzi_fraction": 1}
+    first = strategy_explorer.simulation_payload(request)
+    saved = first["experiment"]
+    saved["interventions"] = [
+        {"agent": 0, "round": 4, "payment_strategy": "all"},
+        {"agent": 1, "round": 4, "person_type": "payment_dependent"},
+        {"agent": 0, "round": 4, "belief_center": 0.5, "belief_width": 0.001, "belief_strength": 1},
+    ]
+    result = strategy_explorer.simulation_payload(saved)
+    assert result["baseline"] == first["scenario"]
+    assert result["scenario"]["beliefs"][:4] == first["scenario"]["beliefs"][:4]
+    assert np.asarray(result["scenario"]["contacts"])[4, 0].sum() == 5
+    initial = np.asarray(result["scenario"]["beliefs"][0][0])
+    current = np.asarray(result["scenario"]["beliefs"][4][0])
+    assert_array_equal(current, [0, 0, 0, 1, 0, 0, 0])
+    # Every initial mass must move to theta=.5: the transport cost is analytic.
+    expected = np.sqrt(np.dot(initial, (np.asarray(result["theta"]) - 0.5) ** 2))
+    assert result["scenario"]["distance"][4][0] == pytest.approx(expected)
+    assert expected != pytest.approx(0.5 * np.abs(current - initial).sum())
+    assert strategy_explorer.simulation_payload(result["experiment"]) == result
 
 
 @pytest.mark.parametrize("change,match", [
@@ -61,8 +102,12 @@ def test_saved_inactive_costs_and_loyalty_duration_do_not_change_dynamics(small_
     ({"config": {"n_agents": 100, "rounds": 1000}}, "trajectory limit"),
     ({"settings": {"components": []}}, "one to three"),
     ({"settings": {"components": [{"mean": 0.5}]}}, "mean, variance, and weight"),
+    ({"settings": {"payment_strategy": "unsupported"}}, "payment_strategy"),
+    ({"config": {"conditional_ally_fraction": 0.6}, "settings": {"junzi_fraction": 0.5}}, "sum to at most 1"),
+    ({"config": {"ally_giver_fraction": 0.2}}, "replace ally/opponent"),
     ({"interventions": [{"agent": 0, "round": 1, "neighbor": 1, "connection": 0}]}, "cannot be removed"),
     ({"interventions": [{"agent": 0, "round": 1, "incitation_spend": 1}]}, "supported manual"),
+    ({"interventions": [{"agent": 0, "round": 1, "conditional_ally": True}]}, "supported manual"),
 ])
 def test_invalid_requests_fail_before_input_generation(small_request, change, match, monkeypatch):
     def unexpected(*args):
@@ -83,6 +128,19 @@ def test_saved_inputs_cannot_change_network_or_model_identity(small_request):
     changed["prepared_inputs"]["complete"]["relationships"][0][1] = 1
     changed["prepared_inputs"]["complete"]["relationships"][1][0] = 1
     with pytest.raises(ValueError, match="every pair opposed"):
+        strategy_explorer.simulation_payload(changed)
+
+
+def test_old_format_and_inconsistent_person_types_are_not_silently_reinterpreted(small_request):
+    saved = strategy_explorer.simulation_payload(small_request)["experiment"]
+    changed = deepcopy(saved)
+    changed["format_version"] = 1
+    del changed["person_types"]
+    with pytest.raises(ValueError, match="original implementation for version 1"):
+        strategy_explorer.simulation_payload(changed)
+    changed = deepcopy(saved)
+    changed["person_types"][0] = "junzi"
+    with pytest.raises(ValueError, match="person_types.*population settings"):
         strategy_explorer.simulation_payload(changed)
 
 
