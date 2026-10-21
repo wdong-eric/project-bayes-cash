@@ -390,7 +390,7 @@ def test_equal_split_of_entire_wealth_keeps_empty_payer_nonnegative():
     assert_allclose(result.wealth.sum(axis=1), 10.0, rtol=1e-14, atol=0)
 
 
-def test_manual_cash_accounting_and_inactive_cost_proposals(pair):
+def test_manual_cash_accounting_and_costs_without_paid_actions(pair):
     config, inputs = pair
     settings = StrategySettings(payment_mode="no_payment")
     baseline = simulate_strategy(config, inputs, settings)

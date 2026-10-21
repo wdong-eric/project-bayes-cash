@@ -31,7 +31,7 @@ def test_initialization_and_saved_experiment_reproduce_every_value(small_request
 def test_separate_log_replay_pairs_inputs_and_preserves_prefix(small_request):
     original = strategy_explorer.simulation_payload(small_request)
     saved = original["experiment"]
-    log = {"kind": "belief-preservation-interventions", "format_version": 2,
+    log = {"kind": "belief-preservation-interventions", "format_version": 3,
            "interventions": [{"agent": 0, "round": 4, "cash_delta": 10},
                              {"agent": 1, "round": 5, "neighbor": 2, "connection": 1}]}
     edited = strategy_explorer.simulation_payload({**saved, "interventions": log["interventions"]})
@@ -43,14 +43,78 @@ def test_separate_log_replay_pairs_inputs_and_preserves_prefix(small_request):
     assert strategy_explorer.simulation_payload(edited["experiment"]) == edited
 
 
-def test_saved_inactive_costs_do_not_change_dynamics(small_request):
+def test_cost_settings_do_not_change_dynamics_without_paid_actions(small_request):
     first = strategy_explorer.simulation_payload(small_request)
     changed = deepcopy(first["experiment"])
     changed["settings"].update(incitation_cost=123, reinforcement_scale=456)
     second = strategy_explorer.simulation_payload(changed)
     assert second["scenario"] == first["scenario"]
-    assert second["metadata"]["spending_mechanisms"] == "inactive"
+    assert second["metadata"]["spending_mechanisms"] == "active"
     assert second["settings"]["incitation_cost"] == 123
+
+
+def test_paid_actions_export_burns_outcomes_and_replay_exactly(small_request):
+    request = deepcopy(small_request)
+    request["settings"] = {"payment_mode": "no_payment", "incitation_cost": 0.25,
+                           "automatic_reinforcement_probability": 1,
+                           "automatic_reinforcement_spend": 0.01}
+    original = strategy_explorer.simulation_payload(request)
+    saved = deepcopy(original["experiment"])
+    saved["interventions"] = [
+        {"agent": 0, "round": 4, "incite_b": 1, "incite_c": 2},
+        {"agent": 1, "round": 4, "neighbor": 2, "connection": 1},
+        {"agent": 0, "round": 4, "cash_delta": 10},
+        {"agent": 0, "round": 4, "reinforcement_spend": 0.5},
+    ]
+    result = strategy_explorer.simulation_payload(saved)
+    assert result["baseline"] == original["scenario"]
+    assert result["scenario"]["beliefs"][:4] == original["scenario"]["beliefs"][:4]
+    assert result["experiment"]["action_uniforms"] == saved["action_uniforms"]
+    scenario = result["scenario"]
+    spent = np.asarray(scenario["incitation_spend"]) + scenario["reinforcement_spend"]
+    assert_allclose(scenario["metrics"]["burned_total"], np.cumsum(spent.sum(axis=1)))
+    assert_allclose(np.diff(scenario["wealth"], axis=0),
+                    np.asarray(scenario["external_cash"])[1:] - spent[1:], atol=1e-12)
+    scheduled = [action for action in scenario["actions"] if action["source"] == "scheduled"]
+    assert [action["action"] for action in scheduled] == ["incitation", "reinforcement"]
+    assert [action["cost"] for action in scheduled] == [0.25, 0.5]
+    assert all(action["status"] == "executed" for action in scheduled)
+    assert scenario["persistent_relationships"][4][1][2] == -1
+    assert scenario["relationships"][4][2][1] == -1
+    assert strategy_explorer.simulation_payload(json.loads(json.dumps(result["experiment"]))) == result
+
+
+def test_saved_action_draws_control_replay_and_record_skips(small_request):
+    request = deepcopy(small_request)
+    request["settings"] = {"payment_mode": "no_payment",
+                           "automatic_incitation_probability": 0.5,
+                           "automatic_reinforcement_probability": 0.5,
+                           "automatic_reinforcement_spend": 1e6}
+    saved = strategy_explorer.simulation_payload(request)["experiment"]
+    draws = np.asarray(saved["action_uniforms"])
+    draws[:, :, 0] = 0
+    saved["action_uniforms"] = draws.tolist()
+    incitation = strategy_explorer.simulation_payload(saved)
+    assert len(incitation["scenario"]["actions"]) == 8 * 6
+    assert {action["reason"] for action in incitation["scenario"]["actions"]} == {"no_eligible_pair"}
+    draws[:, :, 0] = 0.75
+    saved["action_uniforms"] = draws.tolist()
+    reinforcement = strategy_explorer.simulation_payload(saved)
+    assert {action["reason"] for action in reinforcement["scenario"]["actions"]} == {"insufficient_cash"}
+    assert reinforcement["scenario"]["metrics"]["burned_total"] == [0] * 9
+    assert strategy_explorer.simulation_payload(reinforcement["experiment"]) == reinforcement
+
+
+@pytest.mark.parametrize("draws", [None, [], [[[0, 0, 0]]], [[[True] * 3] * 6] * 8,
+                                  [[[1, 0, 0]] * 6] * 8, [[[float("nan"), 0, 0]] * 6] * 8])
+def test_saved_action_draws_are_required_and_validated(small_request, draws):
+    saved = strategy_explorer.simulation_payload(small_request)["experiment"]
+    if draws is None:
+        del saved["action_uniforms"]
+    else:
+        saved["action_uniforms"] = draws
+    with pytest.raises(ValueError, match="action_uniforms"):
+        strategy_explorer.simulation_payload(saved)
 
 
 @pytest.mark.parametrize("strategy,count", [("random_one", 1), ("all", 5), ("farthest", 1), ("farthest_random", 2)])
@@ -108,6 +172,9 @@ def test_type_and_strategy_edits_preserve_prefix_and_distance_is_wasserstein(sma
     ({"interventions": [{"agent": 0, "round": 1, "neighbor": 1, "connection": 0}]}, "cannot be removed"),
     ({"interventions": [{"agent": 0, "round": 1, "incitation_spend": 1}]}, "supported manual"),
     ({"interventions": [{"agent": 0, "round": 1, "conditional_ally": True}]}, "supported manual"),
+    ({"interventions": [{"agent": 0, "round": 1, "incite_b": 1, "incite_c": 6}]}, "outside this experiment"),
+    ({"settings": {"automatic_incitation_probability": 0.8,
+                   "automatic_reinforcement_probability": 0.8}}, "sum to at most 1"),
 ])
 def test_invalid_requests_fail_before_input_generation(small_request, change, match, monkeypatch):
     def unexpected(*args):
@@ -133,11 +200,12 @@ def test_saved_inputs_cannot_change_network_or_model_identity(small_request):
 
 def test_old_format_and_inconsistent_person_types_are_not_silently_reinterpreted(small_request):
     saved = strategy_explorer.simulation_payload(small_request)["experiment"]
-    changed = deepcopy(saved)
-    changed["format_version"] = 1
-    del changed["person_types"]
-    with pytest.raises(ValueError, match="original implementation for version 1"):
-        strategy_explorer.simulation_payload(changed)
+    for version in (1, 2):
+        changed = deepcopy(saved)
+        changed["format_version"] = version
+        del changed["action_uniforms"]
+        with pytest.raises(ValueError, match="original implementation for versions 1 and 2"):
+            strategy_explorer.simulation_payload(changed)
     changed = deepcopy(saved)
     changed["person_types"][0] = "junzi"
     with pytest.raises(ValueError, match="person_types.*population settings"):

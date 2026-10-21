@@ -36,7 +36,7 @@ class GaussianComponent:
 
 @dataclass(frozen=True)
 class StrategySettings:
-    """Population priors and saved, inactive proposals for future spending rules."""
+    """Population priors, payment rules, and optional automatic spending policies."""
 
     payment_mode: str = "fractional"
     payment_strategy: str = "random_one"
@@ -46,6 +46,9 @@ class StrategySettings:
     components: tuple[GaussianComponent, ...] = (GaussianComponent(),)
     incitation_cost: float = 1.0
     reinforcement_scale: float = 10.0
+    automatic_incitation_probability: float = 0.0
+    automatic_reinforcement_probability: float = 0.0
+    automatic_reinforcement_spend: float = 1.0
 
     def __post_init__(self):
         if self.payment_mode not in (*PAYMENT_MODES, "no_payment"):
@@ -58,10 +61,17 @@ class StrategySettings:
             raise ValueError("junzi_fraction must lie in [0, 1]")
         if self.belief_distribution not in ("uniform", "gaussian_mixture"):
             raise ValueError("belief_distribution must be uniform or gaussian_mixture")
-        for name in ("within_agent_variance", "incitation_cost", "reinforcement_scale"):
+        for name in ("within_agent_variance", "incitation_cost", "reinforcement_scale", "automatic_reinforcement_spend"):
             value = getattr(self, name)
             if isinstance(value, (bool, np.bool_)) or not isinstance(value, Real) or not np.isfinite(value) or value <= 0:
                 raise ValueError(f"{name} must be a positive finite real number")
+        for name in ("automatic_incitation_probability", "automatic_reinforcement_probability"):
+            value = getattr(self, name)
+            if (isinstance(value, (bool, np.bool_)) or not isinstance(value, Real)
+                or not np.isfinite(value) or not 0 <= value <= 1):
+                raise ValueError(f"{name} must lie in [0, 1]")
+        if self.automatic_incitation_probability + self.automatic_reinforcement_probability > 1:
+            raise ValueError("automatic action probabilities must sum to at most 1")
         if not isinstance(self.components, tuple) or not 1 <= len(self.components) <= 3:
             raise ValueError("components must be a tuple of one to three Gaussian components")
         if not all(isinstance(component, GaussianComponent) for component in self.components):
@@ -162,7 +172,7 @@ def wasserstein_distance(
 
 @dataclass(frozen=True)
 class StrategyIntervention:
-    """Apply a lab-specific agent change before a one-based update round."""
+    """Schedule a manual edit before an update or a paid action after settlement."""
 
     agent: int
     round: int
@@ -174,6 +184,12 @@ class StrategyIntervention:
     belief_strength: float | None = None
     neighbor: int | None = None
     connection: int | None = None
+    incite_b: int | None = None
+    incite_c: int | None = None
+    reinforcement_spend: float | None = None
+    automatic_incitation_probability: float | None = None
+    automatic_reinforcement_probability: float | None = None
+    automatic_reinforcement_spend: float | None = None
 
     def __post_init__(self):
         for name in ("agent", "round"):
@@ -186,12 +202,24 @@ class StrategyIntervention:
             raise ValueError(f"intervention person_type must be one of {PERSON_TYPES}")
         if self.payment_strategy is not None and self.payment_strategy not in PAYMENT_STRATEGIES:
             raise ValueError(f"intervention payment_strategy must be one of {PAYMENT_STRATEGIES}")
-        for name in ("cash_delta", "belief_center", "belief_width", "belief_strength"):
+        for name in ("cash_delta", "belief_center", "belief_width", "belief_strength",
+                     "reinforcement_spend", "automatic_incitation_probability",
+                     "automatic_reinforcement_probability", "automatic_reinforcement_spend"):
             value = getattr(self, name)
             if value is not None and (
                 isinstance(value, (bool, np.bool_)) or not isinstance(value, Real) or not np.isfinite(value)
             ):
                 raise ValueError(f"intervention {name} must be a finite real number")
+        for name in ("reinforcement_spend", "automatic_reinforcement_spend"):
+            if getattr(self, name) is not None and getattr(self, name) <= 0:
+                raise ValueError(f"intervention {name} must be positive")
+        for name in ("automatic_incitation_probability", "automatic_reinforcement_probability"):
+            if getattr(self, name) is not None and not 0 <= getattr(self, name) <= 1:
+                raise ValueError(f"intervention {name} must lie in [0, 1]")
+        if (self.automatic_incitation_probability is not None
+            and self.automatic_reinforcement_probability is not None
+            and self.automatic_incitation_probability + self.automatic_reinforcement_probability > 1):
+            raise ValueError("automatic action probabilities must sum to at most 1")
         belief_fields = (self.belief_center, self.belief_width, self.belief_strength)
         if any(value is not None for value in belief_fields):
             if any(value is None for value in belief_fields):
@@ -209,9 +237,23 @@ class StrategyIntervention:
                 raise ValueError("intervention neighbor must be nonnegative and different from agent")
             if self.connection not in (-1, 1):
                 raise ValueError("strategy connections cannot be removed; connection must be -1 or 1")
-        if all(getattr(self, name) is None for name in (
+        incitation = self.incite_b is not None or self.incite_c is not None
+        if incitation:
+            for name in ("incite_b", "incite_c"):
+                value = getattr(self, name)
+                if isinstance(value, (bool, np.bool_)) or not isinstance(value, (int, np.integer)) or value < 0:
+                    raise ValueError("incite_b and incite_c must both be nonnegative integers")
+            if len({self.agent, self.incite_b, self.incite_c}) != 3:
+                raise ValueError("incitation actor and both targets must be distinct")
+        manual_fields = (
             "person_type", "payment_strategy", "cash_delta", "belief_center", "connection",
-        )):
+            "automatic_incitation_probability", "automatic_reinforcement_probability", "automatic_reinforcement_spend",
+        )
+        if incitation or self.reinforcement_spend is not None:
+            if (incitation and self.reinforcement_spend is not None
+                or any(getattr(self, name) is not None for name in manual_fields)):
+                raise ValueError("a paid action must be a separate entry with exactly one action and no manual edits")
+        elif all(getattr(self, name) is None for name in manual_fields):
             raise ValueError("intervention must change at least one setting")
 
 
@@ -225,6 +267,9 @@ class StrategyResult:
     relationships: np.ndarray
     persistent_relationships: np.ndarray
     external_cash: np.ndarray
+    incitation_spend: np.ndarray
+    reinforcement_spend: np.ndarray
+    actions: list[dict]
 
 
 def initialize_person_types(config: Config, settings: StrategySettings) -> tuple[str, ...]:
@@ -240,10 +285,17 @@ def initialize_person_types(config: Config, settings: StrategySettings) -> tuple
     return tuple(types)
 
 
+def initialize_action_uniforms(config: Config) -> np.ndarray:
+    """Presample action, eligible-pair, and actor-priority draws independently."""
+    rng = np.random.default_rng(np.random.SeedSequence([config.seed, 698243]))
+    return rng.random((config.rounds, config.n_agents, 3))
+
+
 def simulate_strategy(
     config: Config, inputs: PreparedInputs, settings: StrategySettings,
     *, interventions: tuple[StrategyIntervention, ...] = (),
     person_types: tuple[str, ...] | None = None,
+    action_uniforms: np.ndarray | None = None,
 ) -> StrategyResult:
     """Split each budget over synchronous contacts and layer recipient responses.
 
@@ -253,6 +305,8 @@ def simulate_strategy(
     still learn from evidence, exchange cash, and influence other recipients.
     Targeting uses post-evidence beliefs and opening cash. Persistent conversions
     commit after pooling, independently of the temporary loyalty override.
+    Scheduled paid actions then consume settled cash in their log order, followed
+    by at most one automatic action per agent in saved random priority order.
     """
     if (
         inputs.initial_wealth.size != config.n_agents
@@ -267,6 +321,13 @@ def simulate_strategy(
         raise ValueError("strategy requires all initial connections to be mutual opponents")
     if inputs.contact_uniforms is None:
         raise ValueError("strategy requires prepared contact_uniforms")
+    if action_uniforms is None:
+        action_uniforms = initialize_action_uniforms(config)
+    if (not isinstance(action_uniforms, np.ndarray)
+        or action_uniforms.shape != (config.rounds, config.n_agents, 3)
+        or action_uniforms.dtype.kind not in "fiu" or not np.all(np.isfinite(action_uniforms))
+        or not np.all((0 <= action_uniforms) & (action_uniforms < 1))):
+        raise ValueError("action_uniforms must have shape (rounds, n_agents, 3) and finite values in [0, 1)")
     if config.conditional_ally_fraction + settings.junzi_fraction > 1:
         raise ValueError("payment-dependent and junzi fractions must sum to at most 1")
     if person_types is None:
@@ -281,13 +342,21 @@ def simulate_strategy(
             raise ValueError("intervention agent and round must lie within the configured run")
         if event.neighbor is not None and event.neighbor >= config.n_agents:
             raise ValueError("intervention neighbor must lie within the configured run")
+        if event.incite_b is not None and max(event.incite_b, event.incite_c) >= config.n_agents:
+            raise ValueError("incitation targets must lie within the configured run")
     events = sorted(interventions, key=lambda event: event.round)
     types = np.array(person_types, dtype=object)
     strategies = np.full(config.n_agents, settings.payment_strategy, dtype=object)
+    incitation_probability = np.full(config.n_agents, settings.automatic_incitation_probability, dtype=float)
+    reinforcement_probability = np.full(config.n_agents, settings.automatic_reinforcement_probability, dtype=float)
+    automatic_spend = np.full(config.n_agents, settings.automatic_reinforcement_spend, dtype=float)
     beliefs = np.empty((config.rounds + 1, config.n_agents, config.grid_size))
     wealth = np.empty((config.rounds + 1, config.n_agents))
     payments = np.empty((config.rounds, config.n_agents))
     external_cash = np.zeros_like(payments)
+    incitation_spend = np.zeros_like(payments)
+    reinforcement_spend = np.zeros_like(payments)
+    actions = []
     contacts = np.zeros((config.rounds, config.n_agents, config.n_agents), dtype=bool)
     transfers = np.zeros(contacts.shape)
     history = np.empty((config.rounds + 1, config.n_agents, config.n_agents), dtype=np.int8)
@@ -306,12 +375,54 @@ def simulate_strategy(
     payment_config = replace(config, fixed_payment=0.0) if settings.payment_mode == "no_payment" else config
     payment_mode = "fixed" if settings.payment_mode == "no_payment" else settings.payment_mode
     neighbors = [np.flatnonzero(adjacency[payer]) for payer in range(config.n_agents)]
+
+    def spend_action(step, actor, action, source, cost, b=None, c=None):
+        """Validate before changing cash or signs; automatic failures remain visible."""
+        reason = None
+        if action == "incitation":
+            if b is None:
+                reason = "no_eligible_pair"
+            elif types[b] == "junzi" or types[c] == "junzi":
+                reason = "junzi_target"
+            elif persistent[b, c] != 1:
+                reason = "pair_not_allied"
+        if reason is None and cost > wealth[step + 1, actor]:
+            reason = "insufficient_cash"
+        if reason is not None and source == "scheduled":
+            raise ValueError(f"scheduled {action} after round {step + 1} for agent {actor}: {reason}")
+        if reason is None:
+            wealth[step + 1, actor] -= cost
+            if action == "incitation":
+                incitation_spend[step, actor] += cost
+                persistent[b, c] = persistent[c, b] = -1
+                loyal[b, c] = loyal[c, b] = -1
+                frozen[b, c] = frozen[c, b] = -1
+                unpaid_rounds[b, c] = unpaid_rounds[c, b] = config.loyalty_rounds
+            else:
+                reinforcement_spend[step, actor] += cost
+                with np.errstate(over="ignore"):
+                    alpha = -np.expm1(-np.float64(cost) / settings.reinforcement_scale)
+                beliefs[step + 1, actor] = (
+                    (1.0 - alpha) * beliefs[step + 1, actor] + alpha * inputs.initial_beliefs[actor]
+                )
+        actions.append({
+            "round": step + 1, "agent": int(actor), "action": action, "source": source,
+            "status": "executed" if reason is None else "skipped", "cost": float(cost) if reason is None else 0.0,
+            "incite_b": int(b) if b is not None else None,
+            "incite_c": int(c) if c is not None else None, "reason": reason,
+        })
+
     event_index = 0
     for step in range(config.rounds):
         opening_beliefs = beliefs[step].copy()
         opening_wealth = wealth[step].copy()
+        scheduled_actions = []
         while event_index < len(events) and events[event_index].round == step + 1:
             event = events[event_index]
+            if event.incite_b is not None or event.reinforcement_spend is not None:
+                scheduled_actions.append(event)
+                event_index += 1
+                continue
             if event.person_type is not None and event.person_type != types[event.agent]:
                 if event.person_type == "payment_dependent":
                     loyal[:, event.agent] = effective[:, event.agent]
@@ -321,6 +432,14 @@ def simulate_strategy(
                 types[event.agent] = event.person_type
             if event.payment_strategy is not None:
                 strategies[event.agent] = event.payment_strategy
+            if event.automatic_incitation_probability is not None:
+                incitation_probability[event.agent] = event.automatic_incitation_probability
+            if event.automatic_reinforcement_probability is not None:
+                reinforcement_probability[event.agent] = event.automatic_reinforcement_probability
+            if event.automatic_reinforcement_spend is not None:
+                automatic_spend[event.agent] = event.automatic_reinforcement_spend
+            if incitation_probability[event.agent] + reinforcement_probability[event.agent] > 1:
+                raise ValueError("automatic action probabilities must sum to at most 1 after an intervention")
             if event.cash_delta is not None:
                 with np.errstate(over="ignore", invalid="ignore"):
                     opening_wealth[event.agent] += event.cash_delta
@@ -410,13 +529,31 @@ def simulate_strategy(
                      & (transfers[step] > threshold_payment[None, :])
                      & ~junzi[:, None] & ~junzi[None, :])
         persistent[converted | converted.T] = 1
-        effective[:] = persistent
-        effective[:, conditional] = loyal[:, conditional]
-        effective[:, junzi] = frozen[:, junzi]
-        history[step + 1], persistent_history[step + 1] = effective, persistent
         with np.errstate(over="ignore", invalid="ignore"):
             wealth[step + 1] = (1.0 + config.income_rate) * opening_wealth - payments[step] + transfers[step].sum(axis=0)
             total_cash = wealth[step + 1].sum()
         if not np.isfinite(total_cash) or not np.all(np.isfinite(beliefs[step + 1])):
             raise ValueError("simulation exceeded finite numerical arithmetic; reduce rounds or income_rate")
-    return StrategyResult(beliefs, wealth, payments, contacts, transfers, history, persistent_history, external_cash)
+        for event in scheduled_actions:
+            if event.incite_b is not None:
+                spend_action(step, event.agent, "incitation", "scheduled", settings.incitation_cost, event.incite_b, event.incite_c)
+            else:
+                spend_action(step, event.agent, "reinforcement", "scheduled", event.reinforcement_spend)
+        for actor in np.argsort(action_uniforms[step, :, 2], kind="stable"):
+            choice = action_uniforms[step, actor, 0]
+            if choice < incitation_probability[actor]:
+                eligible = np.triu(persistent == 1, k=1) & ~junzi[:, None] & ~junzi[None, :]
+                eligible[actor, :] = eligible[:, actor] = False
+                pairs = np.argwhere(eligible)
+                b, c = (pairs[int(action_uniforms[step, actor, 1] * len(pairs))] if len(pairs) else (None, None))
+                spend_action(step, actor, "incitation", "automatic", settings.incitation_cost, b, c)
+            elif choice < incitation_probability[actor] + reinforcement_probability[actor]:
+                spend_action(step, actor, "reinforcement", "automatic", automatic_spend[actor])
+        effective[:] = persistent
+        effective[:, conditional] = loyal[:, conditional]
+        effective[:, junzi] = frozen[:, junzi]
+        history[step + 1], persistent_history[step + 1] = effective, persistent
+    return StrategyResult(
+        beliefs, wealth, payments, contacts, transfers, history, persistent_history, external_cash,
+        incitation_spend, reinforcement_spend, actions,
+    )

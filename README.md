@@ -213,7 +213,7 @@ The model stores two relationship layers:
   opponent pair creates a mutual alliance after simultaneous belief pooling.
   This test uses the opening base signs, before applying paid loyalty. Equality
   at the threshold is neutral. Once created, a base alliance persists until a
-  manual sign assignment changes it (incitation remains inactive).
+  manual sign assignment or paid incitation changes it.
 - **Effective directed responses:** ordinary recipients use the base sign.
   Payment-dependent recipients become allied toward each payer on any positive
   actual payment and reset that pair's unpaid clock. On the configured consecutive
@@ -226,9 +226,11 @@ The model stores two relationship layers:
 An entry `[j, i]` means **recipient i's response to payer j**. Effective signs
 can therefore be asymmetric, while persistent base signs remain symmetric. The
 network distinguishes mutual allies, mutual opponents, and mixed responses; the
-relationship table shows both layers and both directions. At zero recipient cash,
-tanh influence is zero, although a positive payment can still establish temporary
-paid loyalty. Newly committed base signs cannot alter reverse same-round influence.
+relationship table shows both layers and both directions. Node markers **O/P/J**
+identify ordinary, payment-dependent, and junzi agents. The full-PMF plot marks
+the true bias with a dashed vertical line. At zero recipient cash, tanh influence
+is zero, although a positive payment can still establish temporary paid loyalty.
+Newly committed base signs cannot alter reverse same-round influence.
 
 Choose among four recipient strategies, globally or through an individual behavior
 intervention: **random one**, **all others**, **farthest**, or **farthest + random
@@ -252,36 +254,59 @@ zero and the remaining masses normalized. The social-rate calibration gives a
 self-share of `1 - social_rate` only if all `N - 1` neighbors contribute the
 reference influence. It is not generally the realized mixing fraction.
 
-The two proposed spending mechanisms are visible, editable, and saved, but
-**inactive in this first version**. The proposed incitation rule would burn a
-fixed cost paid by A to turn an allied B–C pair into opponents, without transferring
-the money to an agent. The proposed self-reinforcement rule would burn `s`, set
-`alpha = 1 - exp(-s / reinforcement_scale)`, and blend
-`p_new = (1 - alpha) * p_current + alpha * p_initial`. Changing these cost controls
-currently has no effect on trajectories or cash. There are no automatic actions
-or paid-action intervention entries for these proposals yet.
+Two paid actions execute **after** ordinary belief interactions and cash settlement:
 
-Manual interventions remain active: change recipient type or payment strategy,
-add or withdraw external cash, blend once toward a specified Gaussian PMF, or set
-a mutual ally/opponent relationship. Entering payment dependence starts fresh
-clocks from current responses; entering junzi freezes current responses; returning
-to ordinary resumes the base signs. Reapplying an unchanged type does not reset
+- **Incitation:** actor A burns `incitation_cost` to turn a persistent allied B–C
+  pair into opponents. A must differ from both targets, and neither target may be
+  junzi. The action breaks both the mutual base alliance and temporary allegiance,
+  with the pair's unpaid clocks expired. New payments can create an alliance again
+  in the next round. The cost is destroyed, not transferred to another agent.
+- **Self-reinforcement:** an agent burns `s`, sets
+  `alpha = -expm1(-s / reinforcement_scale)`, and blends its post-interaction PMF as
+  `p_new = (1 - alpha) * p_current + alpha * p_initial`. The target is its immutable
+  initial PMF, so this action can restore support erased by social repulsion.
+  Junzi may initiate incitation and self-reinforce.
+
+Schedule paid actions in the log or enable automatic attempts. The global
+`automatic_incitation_probability` and `automatic_reinforcement_probability`
+default to zero and must sum to at most one; `automatic_reinforcement_spend`
+defaults to one. Individual behavior interventions can override these settings.
+Each agent makes at most one automatic attempt per round, choosing incitation,
+reinforcement, or neither. Saved random priorities determine actor order;
+incitation selects uniformly among the eligible pairs at that actor's turn.
+Scheduled actions run first in log order. Multiple scheduled actions and a later
+automatic attempt by the same actor are allowed, subject to the remaining cash.
+An invalid or unaffordable scheduled action rejects the replay. Automatic attempts
+with invalid targets, no eligible pair, or insufficient cash are skipped and recorded.
+
+Manual interventions remain active: change recipient type, payment strategy, or
+automatic-action settings; add or withdraw external cash; blend once toward a
+specified Gaussian PMF; or set a mutual ally/opponent relationship. Entering payment
+dependence starts fresh clocks from current responses; entering junzi freezes
+current responses; returning to ordinary resumes the base signs. Reapplying an
+unchanged type does not reset
 its clocks. A mutual sign edit changes both base and effective signs and resets
 the pair's clocks. Connection removal is excluded so the graph stays complete.
 Edits occur before their one-based update, in log order for ties. Payments or
 loyalty expiry later in that round may change the edited responses again. Baseline
 and edited runs share exact inputs; only the latter receives interventions.
-Payments transfer money; total cash changes only through external adjustments.
+Payments transfer money. Each round obeys
+`change in total cash = external adjustments - burned cash`; separate ledgers and
+action outcomes record spending and skipped attempts.
 
 **Save intervention log** saves only the ordered log as JSON. Loading it replaces
 the current log and replays against this experiment's saved inputs. **Save experiment
 JSON** also preserves initial PMFs, person types, evidence, and selection randomness.
-**Save replay HTML** produces portable interactive playback; editing and loading
-require the local server. CLI export accepts `"kind": "belief-preservation"` or its
-saved experiment. Lab experiments and logs now use **format version 2**; version-1
-files require the original implementation at commit `24633b9`, because their
-relationship semantics differ. Source/dependency identity is checked separately
-from the original observatory, whose model is unchanged.
+Saved `action_uniforms` have shape `(rounds, agents, 3)` for action choice, pair
+choice, and actor priority, generated from an independent seed stream. Replaying
+the same saved inputs and log reproduces the action outcomes as well as trajectories.
+**Save replay HTML** includes the full action outcomes and portable interactive
+playback; editing and loading require the local server. CLI export accepts
+`"kind": "belief-preservation"` or its saved experiment. Lab experiments and logs
+now use **format version 3**; older files require their original implementation
+(commit `24633b9` for version 1), rather than silently adopting the new rules.
+Source/dependency identity is checked separately from the original observatory,
+whose model is unchanged.
 
 The preservation metric is **Wasserstein-2 distance** from each agent's initial
 PMF. Let `Q_p(u) = inf {theta: F_p(theta) >= u}` be the quantile function of a PMF
